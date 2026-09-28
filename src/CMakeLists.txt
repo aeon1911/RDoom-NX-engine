@@ -1507,7 +1507,7 @@ endif()
 if( NINTENDO_SWITCH )
 	add_custom_command( TARGET zdoom POST_BUILD
 		COMMAND nacptool --create "UZDoom" "fgsfds, UZDoom team" "${SWITCH_APP_VERSION}" ${CMAKE_BINARY_DIR}/gzdoom.nacp
-		COMMAND aarch64-none-elf-strip -o ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf $<TARGET_FILE:zdoom>
+		COMMAND ${CMAKE_STRIP} -o ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf $<TARGET_FILE:zdoom>
 		COMMAND elf2nro ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf ${CMAKE_BINARY_DIR}/gzdoom.nro --icon=${CMAKE_SOURCE_DIR}/nx/gzdoom.jpg --nacp=${CMAKE_BINARY_DIR}/gzdoom.nacp )
 endif()
 
