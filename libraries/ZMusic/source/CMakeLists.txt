@@ -140,7 +140,12 @@ if(WIN32)
 	)
 endif()
 
-target_link_libraries(zmusic-obj INTERFACE dumb gme libxmp miniz ${CMAKE_DL_LIBS})
+if(NINTENDO_SWITCH)
+	# libnx has no libdl. Module loading is stubbed in i_module.cpp.
+	target_link_libraries(zmusic-obj INTERFACE dumb gme libxmp miniz)
+else()
+	target_link_libraries(zmusic-obj INTERFACE dumb gme libxmp miniz ${CMAKE_DL_LIBS})
+endif()
 
 target_include_directories(zmusic-obj
 INTERFACE
