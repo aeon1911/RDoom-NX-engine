@@ -6,7 +6,13 @@ set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) 
+# The Switch port turns extensions on so newlib declares strdup and strcasecmp.
+# Forcing them off here compiles TiMidity++ as strict C++17 and hides both.
+if(NINTENDO_SWITCH)
+	set(CMAKE_CXX_EXTENSIONS ON)
+else()
+	set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
 
 if (VCPKG_LIBSNDFILE)
 	list(APPEND VCPKG_MANIFEST_FEATURES "vcpkg-libsndfile")
@@ -31,7 +37,11 @@ list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) 
+if(NINTENDO_SWITCH)
+	set(CMAKE_CXX_EXTENSIONS ON)
+else()
+	set(CMAKE_CXX_EXTENSIONS OFF)
+endif()
 
 include(CMakePackageConfigHelpers)
 include(GNUInstallDirs)
@@ -163,6 +173,12 @@ set(ZMUSIC_PACKAGE_DEPENDENCIES "" CACHE INTERNAL "")
 if (WIN32 AND MINGW)
 	add_compile_definitions(-D_UNICODE -DUNICODE)
 	add_compile_definitions(-D__USE_MINGW_ANSI_STDIO=1)
+endif()
+
+if(NINTENDO_SWITCH)
+	# newlib hides POSIX string helpers unless this is set, including when a
+	# target is still compiled as -std=c++17.
+	add_compile_definitions(_GNU_SOURCE)
 endif()
 
 add_subdirectory(thirdparty)
