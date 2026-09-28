@@ -55,7 +55,7 @@
 #include "absl/debugging/internal/examine_stack.h"
 #include "absl/debugging/stacktrace.h"
 
-#if !defined(_WIN32) && !defined(__wasi__)
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__SWITCH__)
 #define ABSL_HAVE_SIGACTION
 // Apple WatchOS and TVOS don't allow sigaltstack
 // Apple macOS has sigaltstack, but using it makes backtrace() unusable.
