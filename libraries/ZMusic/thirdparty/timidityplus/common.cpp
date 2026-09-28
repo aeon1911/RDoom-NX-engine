@@ -64,11 +64,15 @@ void *safe_realloc(void *ptr, size_t count)
 char *safe_strdup(const char *s)
 {
 	if (s == nullptr) s = "";
-	auto p = strdup(s);
+	// newlib on the Switch does not declare strdup unless a POSIX feature
+	// macro is set, and this file is built as strict C++17.
+	size_t n = strlen(s) + 1;
+	auto p = static_cast<char *>(malloc(n));
 	if (p == nullptr)
 	{
 		abort();
 	}
+	memcpy(p, s, n);
 	return p;
 }
 
