@@ -260,6 +260,12 @@ public:
 
 	virtual void StopChannel(FSoundChan* chan);
 	sfxinfo_t* LoadSound(sfxinfo_t* sfx);
+	// background loading (Switch port): returns with *pending set if the sound is still being loaded
+	sfxinfo_t* LoadSoundAsync(sfxinfo_t* sfx, bool* pending);
+	void NXQueueLoad(sfxinfo_t* sfx);
+	void NXApplyLoads(bool wait, int onlyindex = -1);
+	bool NXIsLoading(int index);
+	void NXRestartPending();
 	sfxinfo_t* GetWritableSfx(FSoundID snd)
 	{
 		if ((unsigned)snd.index() >= S_sfx.Size()) return nullptr;

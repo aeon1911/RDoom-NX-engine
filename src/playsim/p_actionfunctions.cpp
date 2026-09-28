@@ -22,6 +22,7 @@
 **
 */
 
+#include "nx_fxthin.h"
 #include "gi.h"
 #include "g_level.h"
 #include "actor.h"
@@ -905,6 +906,9 @@ DEFINE_ACTION_FUNCTION(AActor, A_SpawnProjectile)
 	PARAM_INT	(flags);
 	PARAM_ANGLE	(Pitch);
 	PARAM_INT	(ptr);
+
+	// Switch: listed visual effects are thinned out (same as a projectile that could not spawn)
+	if (ti && NXFx_SkipSpawn(ti, self->Pos())) ACTION_RETURN_OBJECT(nullptr);
 
 	AActor *ref = COPY_AAPTR(self, ptr);
 

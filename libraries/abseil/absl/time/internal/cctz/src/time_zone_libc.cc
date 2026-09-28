@@ -71,6 +71,10 @@ auto tm_zone(const std::tm& tm) -> decltype(tzname[0]) {
   const bool is_dst = tm.tm_isdst > 0;
   return tzname[is_dst];
 }
+#elif defined(__SWITCH__)
+// newlib on the Switch has no tm_gmtoff/tm_zone; the console clock is local time
+auto tm_gmtoff(const std::tm&) -> long { return 0; }
+auto tm_zone(const std::tm&) -> const char* { return "UTC"; }
 #elif defined(__VXWORKS__)
 // Uses the globals: 'timezone' and 'tzname'.
 auto tm_gmtoff(const std::tm& tm) -> decltype(timezone + 0) {

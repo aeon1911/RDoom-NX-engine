@@ -394,6 +394,11 @@ extend class Actor
 		{
 			return false, null;
 		}
+		// Switch port: listed visual effects are thinned out (nx_fx_thin)
+		if (NXFxSkip(missile))
+		{
+			return true, null;
+		}
 
 		// Don't spawn monsters if this actor has been massacred
 		if (DamageType == 'Massacre' && GetDefaultByType(missile).bIsMonster)
@@ -435,6 +440,11 @@ extend class Actor
 			return false, null;
 		}
 		if (failchance > 0 && random[spawnitemex]() < failchance)
+		{
+			return true, null;
+		}
+		// Switch port: listed visual effects are thinned out (nx_fx_thin)
+		if (NXFxSkip(missile))
 		{
 			return true, null;
 		}

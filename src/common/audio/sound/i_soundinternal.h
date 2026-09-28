@@ -58,6 +58,7 @@ enum EChanFlag
 	CHANF_SINGULAR = 0x20000,		// Only start if no sound of this name is already playing.
 	CHANF_RUMBLE = 0x40000,		// Hint to rumble trigger rumble from sound
 	CHANF_NORUMBLE = 0x80000,		// Disable rumble even if it would normally happen
+	CHANF_NXPENDING = 0x100000,		// internal: waiting for the sound to be loaded in the background
 };
 
 typedef TFlags<EChanFlag> EChanFlags;

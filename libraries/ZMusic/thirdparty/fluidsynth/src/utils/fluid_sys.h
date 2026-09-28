@@ -178,8 +178,12 @@ typedef gintptr  intptr_t;
 #include <gmodule.h>
 #endif
 
-#ifndef WIN32
+#if !defined(WIN32) && !defined(WITH_GLIB_STUBS)
 #include <glib/gstdio.h>
+#endif
+
+#if !defined(WIN32) && defined(WITH_GLIB_STUBS)
+#include "posix_glibstubs.h"
 #endif
 
 #ifdef __cplusplus

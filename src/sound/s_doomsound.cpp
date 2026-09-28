@@ -29,6 +29,7 @@
 #include <io.h>
 #endif
 
+#include "nx_perf.h"
 #include "a_sharedglobal.h"
 #include "c_cvars.h"
 #include "c_dispatch.h"
@@ -819,6 +820,7 @@ static void S_SetListener(AActor *listenactor)
 
 void S_UpdateSounds (AActor *listenactor, int tics)
 {
+	NXPERF_SCOPE(sndupd_ms, nullptr);
 	S_SetListener(listenactor);
 
 	for (int i = 0; i < tics; ++i)

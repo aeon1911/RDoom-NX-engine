@@ -846,12 +846,22 @@ VMFunction *FFunctionBuildList::AddFunction(PNamespace *gnspc, const VersionInfo
 }
 
 
+#ifdef __SWITCH__
+#include "../../platform/posix/nx/nx_loadscreen.h"
+#endif
+
 void FFunctionBuildList::Build()
 {
 	VMDisassemblyDumper disasmdump(VMDisassemblyDumper::Overwrite);
+#ifdef __SWITCH__
+	int nxcount = 0;
+#endif
 
 	for (auto &item : mItems)
 	{
+#ifdef __SWITCH__
+		if ((++nxcount & 63) == 0) NXLS_ScriptProgress(nxcount, (int)mItems.Size());
+#endif
 		// [Player701] Do not emit code for abstract functions
 		bool isAbstract = item.Func->Variants[0].Implementation->VarFlags & VARF_Abstract;
 		if (isAbstract) continue;

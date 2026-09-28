@@ -466,6 +466,13 @@ pid_t GetTID() {
   return static_cast<pid_t>(zx_thread_self());
 }
 
+#elif defined(__SWITCH__)
+
+// newlib/libnx pthread_t is a pointer; hash it down to a pid_t.
+pid_t GetTID() {
+  return static_cast<pid_t>(reinterpret_cast<uintptr_t>(pthread_self()) >> 4);
+}
+
 #else
 
 // Fallback implementation of `GetTID` using `pthread_self`.

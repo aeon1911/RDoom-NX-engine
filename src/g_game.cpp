@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "nx_perf.h"
 #include "a_dynlight.h"
 #include "a_keys.h"
 #include "a_morph.h"
@@ -1223,6 +1224,7 @@ static void D_CheckCutsceneAdvance()
 //
 void G_Ticker ()
 {
+	NXPERF_SCOPE(tic_ms, &nxperf.tics);
 	gamestate_t oldgamestate;
 
 	C_TickQueuedInputs();

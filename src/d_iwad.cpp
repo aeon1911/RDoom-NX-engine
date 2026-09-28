@@ -554,6 +554,21 @@ void FIWadManager::AddIWADCandidates(const char *dir, bool nosubdir)
 //
 //==========================================================================
 
+// Returns true if a regular .pk3/.pk7/.zip carries its own IWADINFO lump,
+// e.g. a WadFusion "doom_fusion.ipk3" that got renamed to ".pk3".
+static bool HasEmbeddedIWADInfo(const char* fn)
+{
+	FileSystem check;
+	FileSys::LumpFilterInfo lfi;
+	std::string f = fn;
+	std::vector<FileSys::ResourceName> filenames = { { f, false } };
+	if (check.InitMultipleFiles(filenames, &lfi, nullptr))
+	{
+		return check.CheckNumForName("IWADINFO") >= 0;
+	}
+	return false;
+}
+
 void FIWadManager::ValidateIWADs()
 {
 	TArray<int> returns;
@@ -571,6 +586,10 @@ void FIWadManager::ValidateIWADs()
 		int index;
 		auto x = strrchr(p.mFullPath.GetChars(), '.');
 		if (x != nullptr && (!stricmp(x, ".iwad") || !stricmp(x, ".ipk3") || !stricmp(x, ".ipk7")))
+		{
+			index = CheckIWADInfo(p.mFullPath.GetChars());
+		}
+		else if (x != nullptr && (!stricmp(x, ".pk3") || !stricmp(x, ".pk7") || !stricmp(x, ".zip")) && HasEmbeddedIWADInfo(p.mFullPath.GetChars()))
 		{
 			index = CheckIWADInfo(p.mFullPath.GetChars());
 		}
@@ -702,6 +721,31 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 	}
 
 	// Now check if what got collected actually is an IWAD.
+#ifdef __SWITCH__
+	// The launcher always passes -iwad. Don't open every other game file in the
+	// search paths just to identify it - with big .ipk3 files like WadFusion that
+	// costs several seconds on the Switch.
+	if (iwadparm && numFoundWads < mFoundWads.Size())
+	{
+		TArray<FFoundWadInfo> others;
+		for (unsigned i = 0; i < numFoundWads; i++) others.Push(mFoundWads[i]);
+		mFoundWads.Delete(0, numFoundWads);
+		numFoundWads = 0;
+		ValidateIWADs();
+		bool needOthers = false;
+		for (auto &w : mFoundWads)
+			if (w.mInfoIndex >= 0 && mIWadInfos[w.mInfoIndex].Required.IsNotEmpty()) needOthers = true;
+		if (needOthers && others.Size() > 0)
+		{
+			// e.g. an add-on IWAD that needs its base game: do the full scan after all
+			for (unsigned i = 0; i < mFoundWads.Size(); i++) others.Push(mFoundWads[i]);
+			numFoundWads = others.Size() - mFoundWads.Size();
+			mFoundWads = std::move(others);
+			ValidateIWADs();
+		}
+	}
+	else
+#endif
 	ValidateIWADs();
 
 	// Check for required dependencies.
@@ -797,6 +841,9 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 #if defined(_WIN32)
 		gamedir = "Documents\\My Games\\" GAMENAME "\\";
 		cfgfile = GAMENAMELOWERCASE "-[username].ini"; // I kinda want to grab the actual username here from windows
+#elif defined(__SWITCH__)
+		gamedir = "sd:/switch/gzdoom/iwads/";
+		cfgfile = "sd:/switch/gzdoom/" GAMENAMELOWERCASE ".ini";
 #elif defined(__APPLE__)
 		gamedir = "~/Library/Application Support/" GAMENAMELOWERCASE "/";
 		cfgfile = "~/Library/Preferences/" GAMENAMELOWERCASE ".ini";

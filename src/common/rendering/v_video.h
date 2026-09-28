@@ -67,6 +67,11 @@ enum EHWCaps
 	RFL_NV_MEM = 512,
 };
 
+#if defined(__SWITCH__) && !defined(VID_BACKEND)
+// Switch: OpenGL ES backend by default (lighter on the Tegra X1); desktop OpenGL also works
+#define VID_BACKEND 2
+#endif
+
 enum {
 	BACKEND_OPENGL,
 	BACKEND_VULKAN,

@@ -108,6 +108,14 @@ if ( WIN32 )
     )
 endif ( WIN32 )
 
+if ( NINTENDO_SWITCH )
+    set( fluidsynth_SOURCES
+        ${fluidsynth_SOURCES}
+        utils/posix_glibstubs.c
+        utils/posix_glibstubs.h
+    )
+endif ( NINTENDO_SWITCH )
+
 set ( public_HEADERS
     ../include/fluidsynth/audio.h
     ../include/fluidsynth/event.h
@@ -154,7 +162,7 @@ target_include_directories ( fluidsynth PRIVATE
 )
 
 
-if (NOT WIN32)
+if (NOT WIN32 AND NOT NINTENDO_SWITCH)
    find_package(PkgConfig REQUIRED)
    pkg_search_module(GLIB REQUIRED glib-2.0)
    target_include_directories ( fluidsynth PUBLIC ${GLIB_INCLUDE_DIRS} )

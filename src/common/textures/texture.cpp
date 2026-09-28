@@ -295,12 +295,16 @@ bool FTexture::SmoothEdges(unsigned char* buffer, int w, int h)
 //
 //===========================================================================
 
+// set on background texture decoding threads (Switch port)
+thread_local bool nx_asyncworker = false;
+
 bool FTexture::ProcessData(unsigned char* buffer, int w, int h, bool ispatch)
 {
 	if (Masked)
 	{
 		Masked = SmoothEdges(buffer, w, h);
-		if (Masked && !ispatch) FindHoles(buffer, w, h);
+		// FindHoles allocates from a shared arena, which is not thread safe
+		if (Masked && !ispatch && !nx_asyncworker) FindHoles(buffer, w, h);
 	}
 	return true;
 }

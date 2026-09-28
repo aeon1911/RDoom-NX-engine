@@ -485,10 +485,14 @@ fluid_thread_self_set_prio(int prio_level)
         memset(&priority, 0, sizeof(priority));
         priority.sched_priority = prio_level;
 
+#ifndef __SWITCH__
         if(pthread_setschedparam(pthread_self(), SCHED_FIFO, &priority) == 0)
         {
             return;
         }
+#else
+        return; /* no realtime scheduling classes on Switch */
+#endif
 
 #ifdef DBUS_SUPPORT
         /* Try to gain high priority via rtkit */

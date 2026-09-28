@@ -403,6 +403,11 @@ public:
 	std::vector<unsigned char>&& TakeBuffer() { return std::move(mBuffer); }
 };
 
+// Switch: large-block read cache for resource archives.
+// bulk = true during startup (big blocks), false afterwards.
+void SetBlockCacheMode(bool bulk);
+void GetBlockCacheStats(uint64_t &hits, uint64_t &misses, uint64_t &bytesread);
+
 }
 
 #endif

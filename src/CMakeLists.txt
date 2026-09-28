@@ -102,6 +102,15 @@ else()
 	# Non-Windows version also needs SDL except native OS X backend
 	if( NOT APPLE OR NOT OSX_COCOA_BACKEND )
 		find_package( SDL2 REQUIRED )
+		if ( NINTENDO_SWITCH )
+			# I don't know what the fuck happened to the dka64 cmake environment (or gzdoom's FindSDL2 script),
+			# but the above line will no longer define SDL2_INCLUDE_DIR or SDL2_LIBRARY
+			# and it happened to a couple other libraries as well; so we define them by hand
+			if( NOT DEFINED SDL2_LIBRARY AND NOT DEFINED SDL2_INCLUDE_DIR )
+				set( SDL2_INCLUDE_DIR "$ENV{PORTLIBS_PREFIX}/include/SDL2" )
+				set( SDL2_LIBRARY "$ENV{PORTLIBS_PREFIX}/lib/libSDL2.a" )
+			endif()
+		endif()
 		include_directories( SYSTEM "${SDL2_INCLUDE_DIR}" )
 		link_directories(${SDL2_LINK_DIR})
 		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} "${SDL2_LIBRARY}" )
@@ -117,6 +126,14 @@ if( NOT NO_OPENAL )
 	elseif ( NOT DYN_OPENAL )	# DYN_OPENAL uses local copies of the headers.
 		find_package( OpenAL )
 		mark_as_advanced(CLEAR OPENAL_INCLUDE_DIR)
+		if( NINTENDO_SWITCH )
+			# counteract shit detection
+			if( NOT DEFINED OPENAL_LIBRARY OR NOT DEFINED OPENAL_INCLUDE_DIR )
+				message( "-- Couldn't find OpenAL, falling back to default switch-openal location" )
+				set( OPENAL_INCLUDE_DIR "$ENV{PORTLIBS_PREFIX}/include/AL" )
+				set( OPENAL_LIBRARY "$ENV{PORTLIBS_PREFIX}/lib/libopenal.a" )
+			endif()
+		endif()
 		if( OPENAL_INCLUDE_DIR )
 			include_directories( SYSTEM ${OPENAL_INCLUDE_DIR} )
 			mark_as_advanced(CLEAR OPENAL_LIBRARY)
@@ -127,9 +144,11 @@ if( NOT NO_OPENAL )
 				endif()
 			else()
 				set( NO_OPENAL ON )
+				message( SEND_ERROR "OpenAL library not found!" )
 			endif()
 		else()
 			set( NO_OPENAL ON )
+			message( SEND_ERROR "OpenAL includes not found!" )
 		endif()
 	else()
 		add_definitions( -DDYN_OPENAL )
@@ -411,6 +430,12 @@ set( PLAT_SDL_SOURCES
 	common/platform/posix/sdl/st_start.cpp )
 set( PLAT_UNIX_SOURCES
 	common/platform/posix/unix/i_specialpaths.cpp )
+set( PLAT_NX_SOURCES
+	common/platform/posix/nx/i_nxsystem.cpp
+	common/platform/posix/nx/st_start.cpp
+	common/platform/posix/nx/i_specialpaths.cpp
+	common/platform/posix/nx/nx_loadscreen.cpp
+	common/platform/posix/nx/nx_glthread.cpp )
 set( PLAT_OSX_SOURCES
 	common/platform/posix/osx/iwadpicker_cocoa.mm
 	common/platform/posix/osx/i_specialpaths.mm
@@ -446,6 +471,16 @@ elseif( APPLE )
 
 	set_source_files_properties( posix/osx/zdoom.icns PROPERTIES MACOSX_PACKAGE_LOCATION Resources )
 	set_source_files_properties( common/platform/posix/osx/iwadpicker_cocoa.mm PROPERTIES COMPILE_FLAGS -fobjc-exceptions )
+elseif( NINTENDO_SWITCH )
+	set( SYSTEM_SOURCES_DIR common/platform/posix common/platform/posix/sdl common/platform/posix/nx )
+	set( SYSTEM_SOURCES ${PLAT_POSIX_SOURCES} ${PLAT_SDL_SOURCES} ${PLAT_NX_SOURCES} )
+	set( OTHER_SYSTEM_SOURCES ${PLAT_WIN32_SOURCES} ${PLAT_OSX_SOURCES} ${PLAT_COCOA_SOURCES} )
+	# use our own replacements for some of the SDL sources
+	list( REMOVE_ITEM SYSTEM_SOURCES
+		common/platform/posix/sdl/st_start.cpp
+		common/platform/posix/sdl/crashcatcher.c )
+	# avoid trying to call realpath or whatever
+	add_definitions( -DPROGDIR="./" )
 else()
 	option (SYSTEMINSTALL "Set global progdir based on CMake Install Dir" OFF)
 
@@ -484,6 +519,10 @@ elseif( HAVE_DISPATCH_APPLY )
 else()
 	option( NO_OPENMP "Disable usage of OpenMP" OFF )
 
+	if( NINTENDO_SWITCH )
+		set( NO_OPENMP ON )
+	endif()
+
 	if( NOT NO_OPENMP )
 		include( FindOpenMP )
 
@@ -509,6 +548,10 @@ add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/sc_man_scanner.h
 include_directories( ${CMAKE_CURRENT_BINARY_DIR} )
 
 option( SEND_ANON_STATS "Enable sending of anonymous hardware statistics" ON )
+
+if( NINTENDO_SWITCH )
+	set( SEND_ANON_STATS OFF )
+endif()
 
 if( NOT SEND_ANON_STATS )
 	add_definitions( -DNO_SEND_STATS )
@@ -745,6 +788,7 @@ if (HAVE_GLES2)
 		common/rendering/gles/gles_postprocessstate.cpp
 		common/rendering/gles/gles_buffers.cpp
 		common/rendering/gles/gles_hwtexture.cpp
+		common/rendering/gles/gles_asynctex.cpp
 		common/rendering/gles/gles_shader.cpp
 		common/rendering/gles/gles_shaderprogram.cpp
 		common/rendering/gles/gles_samplers.cpp
@@ -829,6 +873,7 @@ set (PCH_SOURCES
 	playsim/p_spec.cpp
 	p_states.cpp
 	playsim/p_things.cpp
+	playsim/nx_fxthin.cpp
 	p_tick.cpp
 	playsim/p_user.cpp
 	rendering/r_utility.cpp
@@ -1094,6 +1139,9 @@ set (PCH_SOURCES
 	common/thirdparty/libsmackerdec/src/LogError.cpp
 	common/thirdparty/libsmackerdec/src/SmackerDecoder.cpp
 	common/engine/cycler.cpp
+	common/engine/nx_perf.cpp
+	common/engine/nx_jobs.cpp
+	rendering/hwrenderer/hw_nxprefetch.cpp
 	common/engine/d_event.cpp
 	common/engine/date.cpp
 	common/engine/stats.cpp
@@ -1275,6 +1323,14 @@ set( GAME_SOURCES
 set( GAME_NONPCH_SOURCES ${GAME_SOURCES} )
 list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
+if( NINTENDO_SWITCH )
+	list( REMOVE_ITEM PROJECT_LIBRARIES dl )
+	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL glapi drm_nouveau )
+	# static ZMusic pulls in libsndfile (+ codecs) and mpg123
+	set( ZMUSIC_LIBRARIES ${ZMUSIC_LIBRARIES} sndfile FLAC opus vorbisenc vorbis ogg mpg123 m )
+	link_directories( $ENV{DEVKITPRO}/portlibs/switch/lib )
+endif()
+
 add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
 
 target_include_directories( zdoom PRIVATE ${CMAKE_BINARY_DIR} )
@@ -1324,7 +1380,14 @@ if( UNIX )
 	endif()
 endif()
 
-target_link_libraries( zdoom ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash )
+if( NINTENDO_SWITCH )
+	# everything is static on Switch, so let the linker resolve the circular deps
+	target_link_libraries( zdoom -Wl,--start-group ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash nx -Wl,--end-group )
+	# Mesa glthread support (nx_glthread.cpp): count driver-thread syncs, big stack for the driver thread
+	target_link_options( zdoom PRIVATE "-Wl,--wrap=_mesa_glthread_finish_before" "-Wl,--wrap=pthread_create" "-Wl,--wrap=nwindowDequeueBuffer" "-Wl,--wrap=nwindowQueueBuffer" "-Wl,--wrap=_util_queue_fence_wait" )
+else()
+	target_link_libraries( zdoom ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash )
+endif()
 include_directories(
 	BEFORE
 	.
@@ -1440,6 +1503,13 @@ else()
 			BUILD_WITH_INSTALL_RPATH ON
 		)
 	endif()
+endif()
+
+if( NINTENDO_SWITCH )
+	add_custom_command( TARGET zdoom POST_BUILD
+		COMMAND nacptool --create "UZDoom" "fgsfds, UZDoom team" "${SWITCH_APP_VERSION}" ${CMAKE_BINARY_DIR}/gzdoom.nacp
+		COMMAND aarch64-none-elf-strip -o ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf $<TARGET_FILE:zdoom>
+		COMMAND elf2nro ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf ${CMAKE_BINARY_DIR}/gzdoom.nro --icon=${CMAKE_SOURCE_DIR}/nx/gzdoom.jpg --nacp=${CMAKE_BINARY_DIR}/gzdoom.nacp )
 endif()
 
 add_custom_command(TARGET zdoom POST_BUILD

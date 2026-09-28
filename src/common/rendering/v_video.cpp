@@ -70,10 +70,18 @@ CUSTOM_CVAR(Int, gl_pipeline_depth, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_N
 
 CUSTOM_CVAR(Int, vid_maxfps, 500, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 {
+#ifdef __SWITCH__
+	// the Switch port offers a steady 30 FPS cap (frames are interpolated)
+	if (self < 20 && self != 0)
+	{
+		self = 20;
+	}
+#else
 	if (self < GameTicRate && self != 0)
 	{
 		self = GameTicRate;
 	}
+#endif
 	else if (self > 1000)
 	{
 		self = 1000;

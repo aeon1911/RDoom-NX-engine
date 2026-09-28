@@ -56,6 +56,17 @@
 #include "widgets/errorwindow.h"
 #include "widgets/launcherwindow.h"
 
+#ifdef __SWITCH__
+// no tty stuff, define this here to avoid adding ifdefs everywhere
+#undef isatty
+#define isatty(x) false
+#undef TIOCGWINSZ
+#define TIOCGWINSZ -1
+#undef ioctl
+#define ioctl(x, y, p) do { } while(0);
+struct winsize { int ws_row, ws_col; };
+#endif
+
 #if defined(__APPLE__)
 int I_PickIWad_Cocoa (WadStuff *wads, int numwads, bool showwin, int defaultiwad);
 #endif
@@ -74,6 +85,7 @@ void I_SetIWADInfo()
 {
 }
 
+#ifndef __SWITCH__
 extern "C" int I_FileAvailable(const char* filename)
 {
 	FString cmd = "which {0} >/dev/null 2>&1";
@@ -87,6 +99,7 @@ extern "C" int I_FileAvailable(const char* filename)
 
 	return 0;
 }
+#endif
 
 //
 // I_Error
@@ -136,11 +149,31 @@ void Unix_I_FatalError(const char* errortext)
 }
 #endif
 
+#ifdef __SWITCH__
+#include "version.h"
+void I_NXShowFatalError(const char *title, const char *message);
+
+void Switch_I_FatalError(const char* message)
+{
+	SDL_Quit();
+	FILE *f = fopen("error.log", "w");
+	if (f)
+	{
+		fprintf(f, "FATAL ERROR:\n%s\n", message);
+		fclose(f);
+	}
+	FString title;
+	title << GAMENAME " " << GetVersionString() << " - FATAL ERROR";
+	I_NXShowFatalError(title.GetChars(), message);
+}
+#endif
 
 void I_ShowFatalError(const char *message)
 {
 #ifdef __APPLE__
 	Mac_I_FatalError(message);
+#elif defined __SWITCH__
+	Switch_I_FatalError(message);
 #elif defined __unix__
 	Unix_I_FatalError(message);
 #else
@@ -240,9 +273,16 @@ void RedrawProgressBar(int CurPos, int MaxPos)
 	ProgressBarMaxPos = MaxPos;
 }
 
+#ifdef __SWITCH__
+#include "../nx/nx_loadscreen.h"
+#endif
+
 void I_PrintStr(const char *cp)
 {
 	g_AllPrintOutput.Push(cp);
+#ifdef __SWITCH__
+	NXLS_OnPrint(cp);
+#endif
 
 	const char * srcp = cp;
 	FString printData = "";
@@ -304,6 +344,10 @@ void I_PrintStr(const char *cp)
 
 bool HoldingQueryKey(const char* key)
 {
+#ifdef __SWITCH__
+	// no keyboard, and creating a window here would grab the display too early
+	return false;
+#endif
 	int code = 0;
 
 	if (!stricmp(key, "shift"))
@@ -349,6 +393,9 @@ bool I_PickIWad (bool showwin, FStartupSelectionInfo& info)
 		return true;
 	}
 	return false;
+#elif defined(__SWITCH__)
+	// no desktop-style picker on Switch; the launcher .nro always passes -iwad
+	return true;
 #else
 	return LauncherWindow::ExecModal(info);
 #endif
@@ -413,6 +460,7 @@ void I_OpenShellFolder(const char* infolder)
 {
 	char* curdir = getcwd(NULL,0);
 
+#ifndef __SWITCH__
 	if (!chdir(infolder))
 	{
 		if (longsavemessages)
@@ -427,6 +475,7 @@ void I_OpenShellFolder(const char* infolder)
 		chdir(curdir);
 	}
 	else
+#endif
 	{
 		if (longsavemessages)
 			Printf("Unable to open directory '%s\n", infolder);

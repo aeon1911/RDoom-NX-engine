@@ -50,6 +50,7 @@ public:
 	void InitializeState() override;
 	void Update() override;
 	int GetShaderCount() override { return 0; }
+	bool CompileNextShader() override;
 
 	void FirstEye() override;
 	void NextEye(int eyecount) override;
@@ -76,6 +77,8 @@ public:
 	virtual TArray<uint8_t> GetScreenshotBuffer(int &pitch, ESSType &color_type, float &gamma) override;
 
 	void Swap();
+	void FinishSwap();		// Switch: end of the previous frame, deferred while the GL driver thread renders it
+	bool mSwapPending = false;
 	bool IsHWGammaActive() const { return HWGammaActive; }
 
 	void SetVSync(bool vsync) override;

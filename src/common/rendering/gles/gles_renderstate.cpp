@@ -16,6 +16,7 @@
 */
 
 
+#include <string.h>
 #include "gles_system.h"
 #include "hw_cvars.h"
 #include "flatvertices.h"
@@ -37,6 +38,15 @@
 namespace OpenGLESRenderer
 {
 
+// Switch port: skip GL calls that would set the same state again. Every
+// redundant call still costs driver time on the Switch's CPU, and changing
+// a "current" vertex attribute makes Mesa revalidate the vertex arrays.
+static bool nxAttribValid = false;
+static float nxLastColor[4], nxLastNormal[4];
+static int nxOffsetEnabled = -1;
+static float nxOffsetFactor = 0, nxOffsetUnits = 0;
+
+
 FGLRenderState gl_RenderState;
 
 static VSMatrix identityMatrix(1);
@@ -56,6 +66,8 @@ static void matrixToGL(const VSMatrix &mat, int loc)
 void FGLRenderState::Reset()
 {
 	FRenderState::Reset();
+	nxAttribValid = false;
+	nxOffsetEnabled = -1;
 	mVertexBuffer = mCurrentVertexBuffer = nullptr;
 	mGlossiness = 0.0f;
 	mSpecularLevel = 0.0f;
@@ -81,6 +93,12 @@ void FGLRenderState::Reset()
 // Apply shader settings
 //
 //==========================================================================
+
+#ifdef __SWITCH__
+CVAR(Bool, gles_merge_light_variants, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
+CVAR(Bool, gles_merge_light_variants, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
 
 bool FGLRenderState::ApplyShader()
 {
@@ -183,6 +201,16 @@ bool FGLRenderState::ApplyShader()
 	flavour.dynLightsSub = (subLights > 0);
 	flavour.dynLightsAdd = (addLights > 0);
 
+	if (gles_merge_light_variants)
+	{
+		// Use the same variant for lit and unlit surfaces (the light loops simply run
+		// zero times). Otherwise every muzzle flash, tracer or explosion light can
+		// trigger several shader compiles in the middle of a fight, which freezes
+		// the game for a moment on slower hardware like the Switch.
+		flavour.dynLightsMod = flavour.dynLightsSub = flavour.dynLightsAdd = true;
+		flavour.hasSpotLight = true;
+	}
+
 	flavour.useObjectColor2 = (mStreamData.uObjectColor2.a > 0);
 	flavour.useGlowTopColor = mGlowEnabled && (mStreamData.uGlowTopColor[3] > 0);
 	flavour.useGlowBottomColor = mGlowEnabled && (mStreamData.uGlowBottomColor[3] > 0);
@@ -225,8 +253,17 @@ bool FGLRenderState::ApplyShader()
 		activeShader->cur->muThickFogMultiplier.Set(mHwUniforms->mThickFogMultiplier);
 	}
 
-	glVertexAttrib4fv(VATTR_COLOR, &mStreamData.uVertexColor.X);
-	glVertexAttrib4fv(VATTR_NORMAL, &mStreamData.uVertexNormal.X);
+	if (!nxAttribValid || memcmp(nxLastColor, &mStreamData.uVertexColor.X, sizeof(nxLastColor)))
+	{
+		glVertexAttrib4fv(VATTR_COLOR, &mStreamData.uVertexColor.X);
+		memcpy(nxLastColor, &mStreamData.uVertexColor.X, sizeof(nxLastColor));
+	}
+	if (!nxAttribValid || memcmp(nxLastNormal, &mStreamData.uVertexNormal.X, sizeof(nxLastNormal)))
+	{
+		glVertexAttrib4fv(VATTR_NORMAL, &mStreamData.uVertexNormal.X);
+		memcpy(nxLastNormal, &mStreamData.uVertexNormal.X, sizeof(nxLastNormal));
+	}
+	nxAttribValid = true;
 
 	activeShader->cur->muDesaturation.Set(mStreamData.uDesaturationFactor);
 	//activeShader->cur->muFogEnabled.Set(fogset);
@@ -337,6 +374,11 @@ bool FGLRenderState::ApplyShader()
 
 		activeShader->cur->muLightRange.Set(range);
 	}
+	else if (gles_merge_light_variants)
+	{
+		int range[4] = { 0, 0, 0, 0 };
+		activeShader->cur->muLightRange.Set(range);
+	}
 
 	if (gles.glesMode >= GLES_MODE_OGL3)
 	{
@@ -385,15 +427,19 @@ void FGLRenderState::ApplyState()
 	}
 
 
-	if (mBias.mFactor == 0 && mBias.mUnits == 0)
+	int offsetOn = !(mBias.mFactor == 0 && mBias.mUnits == 0);
+	if (offsetOn != nxOffsetEnabled)
 	{
-		glDisable(GL_POLYGON_OFFSET_FILL);
+		if (offsetOn) glEnable(GL_POLYGON_OFFSET_FILL);
+		else glDisable(GL_POLYGON_OFFSET_FILL);
+		nxOffsetEnabled = offsetOn;
 	}
-	else
+	if (offsetOn && (mBias.mFactor != nxOffsetFactor || mBias.mUnits != nxOffsetUnits))
 	{
-		glEnable(GL_POLYGON_OFFSET_FILL);
+		glPolygonOffset(mBias.mFactor, mBias.mUnits);
+		nxOffsetFactor = mBias.mFactor;
+		nxOffsetUnits = mBias.mUnits;
 	}
-	glPolygonOffset(mBias.mFactor, mBias.mUnits);
 	mBias.mChanged = false;
 }
 
@@ -401,6 +447,7 @@ void FGLRenderState::ApplyBuffers()
 {
 	if (mVertexBuffer != mCurrentVertexBuffer || mVertexOffsets[0] != mCurrentVertexOffsets[0] || mVertexOffsets[1] != mCurrentVertexOffsets[1])
 	{
+		nxAttribValid = false;	// a different vertex layout may have arrays for these
 		assert(mVertexBuffer != nullptr);
 		static_cast<GLVertexBuffer*>(mVertexBuffer)->Bind(mVertexOffsets);
 		mCurrentVertexBuffer = mVertexBuffer;

@@ -25,6 +25,10 @@
 // HEADER FILES ------------------------------------------------------------
 
 #include <SDL2/SDL.h>
+#include "nx_perf.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/nx_glthread.h"
+#endif
 
 #ifdef HAVE_VULKAN
 #include <SDL2/SDL_vulkan.h>
@@ -70,6 +74,16 @@ EXTERN_CVAR (Int, vid_displaybits)
 EXTERN_CVAR (Int, vid_defwidth)
 EXTERN_CVAR (Int, vid_defheight)
 EXTERN_CVAR (Bool, cl_capfps)
+#ifdef __SWITCH__
+EXTERN_CVAR(Bool, vid_vsync)
+// Switch: vsync interval (1 = 60 Hz, 2 = locked 30 fps)
+CUSTOM_CVAR(Int, nx_swapinterval, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+{
+	if (self < 1) self = 1;
+	else if (self > 4) self = 4;
+	else if (screen) screen->SetVSync(vid_vsync);
+}
+#endif
 EXTERN_CVAR(Bool, vk_debug)
 EXTERN_FARG(glversion);
 
@@ -147,6 +161,11 @@ namespace Priv
 		// TODO control better when updateDisplayInfo fails
 		SDL_Rect* bounds = &displayBounds[vid_adapter % numberOfDisplays];
 
+#ifdef __SWITCH__
+		// the Switch reports the docked 1080p mode; the game renders at 720p
+		win_w = 1280;
+		win_h = 720;
+#endif
 		if (win_w <= 0 || win_h <= 0)
 		{
 			win_w = bounds->w * 8 / 10;
@@ -232,6 +251,11 @@ CUSTOM_CVAR(Int, vid_adapter, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG | CVAR_NOINITC
 		// TODO control better when updateDisplayInfo fails
 		SDL_Rect* bounds = &Priv::displayBounds[vid_adapter % Priv::numberOfDisplays];
 
+#ifdef __SWITCH__
+		// the Switch reports the docked 1080p mode; the game renders at 720p
+		win_w = 1280;
+		win_h = 720;
+#endif
 		if (win_w <= 0 || win_h <= 0)
 		{
 			win_w = bounds->w * 8 / 10;
@@ -609,6 +633,12 @@ void SystemGLFrameBuffer::SetVSync( bool vsync )
 	const GLint value = vsync ? 1 : 0;
 	CGLSetParameter( CGLGetCurrentContext(), kCGLCPSwapInterval, &value );
 #else
+#ifdef __SWITCH__
+	// the panel is 60 Hz: interval 2 presents every other refresh = a real 30 fps lock
+	NX_GLThreadFinish();
+	int interval = vsync ? clamp<int>(nx_swapinterval, 1, 4) : 0;
+	SDL_GL_SetSwapInterval(interval);
+#else
 	if (vsync)
 	{
 		if (SDL_GL_SetSwapInterval(-1) == -1)
@@ -619,10 +649,16 @@ void SystemGLFrameBuffer::SetVSync( bool vsync )
 		SDL_GL_SetSwapInterval(0);
 	}
 #endif
+#endif
 }
 
 void SystemGLFrameBuffer::SwapBuffers()
 {
+#ifdef __SWITCH__
+	// everything recorded for this frame must reach the driver before the swap
+	NX_GLThreadFinish();
+#endif
+	NXPERF_SCOPE(swap_ms, nullptr);
 	SDL_GL_SwapWindow(Priv::window);
 }
 

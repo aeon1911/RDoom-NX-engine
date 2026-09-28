@@ -397,7 +397,7 @@ public:
 
 		tag |= (flavour.texFlags & 7) << 3;
 
-		tag |= (flavour.blendFlags & 7) << 6;
+		tag |= (flavour.blendFlags & 7) << 25;
 
 		tag |= (flavour.twoDFog & 1) << 7;
 		tag |= (flavour.fogEnabled & 1) << 8;
@@ -428,6 +428,13 @@ public:
 
 	bool Bind(ShaderFlavourData& flavour);
 
+	// Switch: variant bookkeeping so that variants used in earlier sessions
+	// can be compiled while the game starts instead of in the middle of a fight.
+	FString mNXId;
+	static void DecodeShaderTag(uint32_t tag, ShaderFlavourData &flavour);
+	bool CompileVariant(uint32_t tag, ShaderFlavourData &flavour);
+	bool HasVariant(uint32_t tag) const { return variants.find(tag) != variants.end(); }
+
 
 };
 
@@ -446,7 +453,13 @@ public:
 	FShader *Get(unsigned int eff, bool alphateston, EPassType passType);
 
 	void SetActiveShader(FShader::ShaderVariantData *sh);
+	// compiles one variant from the list of previously used ones; returns true when there is nothing left to do
+	bool PrecompileNextVariant();
+	FShader *FindById(const char *id);
 private:
+	TArray<FString> mPrecompileList;
+	unsigned mPrecompilePos = 0;
+	bool mPrecompileLoaded = false;
 
 	FShader::ShaderVariantData *mActiveShader = nullptr;
 	TArray<FShaderCollection*> mPassShaders;
@@ -469,6 +482,7 @@ public:
 	FShader *Compile(const char *ShaderName, const char *ShaderPath, const char *LightModePath, const char *shaderdefines, bool usediscard, EPassType passType);
 	int Find(const char *mame);
 	FShader *BindEffect(int effect, ShaderFlavourData& flavour);
+	FShader *FindById(const char *id);
 
 	FShader *Get(unsigned int eff, bool alphateston)
 	{

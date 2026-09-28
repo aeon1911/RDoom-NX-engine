@@ -36,6 +36,18 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#elif defined __SWITCH__
+// no libdl
+#define dlopen(x, y) (NULL)
+#define dlsym(x, y) (NULL)
+#define dlclose(x) do { } while(0)
+#elif defined __SWITCH__
+// no dynamic loading on Switch; everything is linked statically
+#define dlopen(x, y) (NULL)
+#define dlsym(x, y) (NULL)
+#define dlclose(x) do { } while(0)
+#define RTLD_LAZY 0
+#define RTLD_NOW 0
 #else
 #include <dlfcn.h>
 #endif

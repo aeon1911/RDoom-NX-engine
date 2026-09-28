@@ -15,6 +15,7 @@
 **
 */
 
+#include "nx_perf.h"
 #include "gles_system.h"
 #include "c_cvars.h"
 #include "v_video.h"
@@ -35,6 +36,8 @@
 #include "gles_renderer.h"
 #include <map>
 #include <memory>
+#include <stdio.h>
+#include <string.h>
 
 namespace OpenGLESRenderer
 {
@@ -668,6 +671,63 @@ FShader::~FShader()
 //
 //==========================================================================
 
+static const char *VariantListFile = "shadervariants.txt";
+static const char *VariantListHeader = "UZDoom-GLES-variants 2";
+
+void FShader::DecodeShaderTag(uint32_t tag, ShaderFlavourData &flavour)
+{
+	memset(&flavour, 0, sizeof(flavour));
+	flavour.textureMode = tag & 7;
+	flavour.texFlags = (tag >> 3) & 7;
+	flavour.blendFlags = (tag >> 25) & 7;
+	flavour.twoDFog = (tag >> 7) & 1;
+	flavour.fogEnabled = (tag >> 8) & 1;
+	flavour.fogEquationRadial = (tag >> 9) & 1;
+	flavour.colouredFog = (tag >> 10) & 1;
+	flavour.doDesaturate = (tag >> 11) & 1;
+	flavour.dynLightsMod = (tag >> 12) & 1;
+	flavour.dynLightsSub = (tag >> 13) & 1;
+	flavour.dynLightsAdd = (tag >> 14) & 1;
+	flavour.useULightLevel = (tag >> 15) & 1;
+	flavour.useObjectColor2 = (tag >> 16) & 1;
+	flavour.useGlowTopColor = (tag >> 17) & 1;
+	flavour.useGlowBottomColor = (tag >> 18) & 1;
+	flavour.useColorMap = (tag >> 19) & 1;
+	flavour.buildLighting = (tag >> 20) & 1;
+	flavour.bandedSwLight = (tag >> 21) & 1;
+#ifdef NPOT_EMULATION
+	flavour.npotEmulation = (tag >> 22) & 1;
+#endif
+	flavour.hasSpotLight = (tag >> 23) & 1;
+	flavour.paletteInterpolate = (tag >> 24) & 1;
+}
+
+static TMap<FString, bool> KnownVariants;	// lines already in the list file
+
+static void RecordVariant(const FString &id, uint32_t tag)
+{
+#if defined(__SWITCH__) || defined(NX_TEST_VARIANTS)
+	if (id.IsEmpty()) return;
+	FStringf line("%s %08x", id.GetChars(), tag);
+	if (KnownVariants.CheckKey(line)) return;
+	KnownVariants.Insert(line, true);
+	bool newfile = false;
+	FILE *f = fopen(VariantListFile, "r");
+	if (f)
+	{
+		char line[128] = {};
+		if (!fgets(line, sizeof(line), f) || strncmp(line, VariantListHeader, strlen(VariantListHeader)) != 0) newfile = true;
+		fclose(f);
+	}
+	else newfile = true;
+	f = fopen(VariantListFile, newfile ? "w" : "a");
+	if (!f) return;
+	if (newfile) fprintf(f, "%s\n", VariantListHeader);
+	fprintf(f, "%s %08x\n", id.GetChars(), tag);
+	fclose(f);
+#endif
+}
+
 bool FShader::Bind(ShaderFlavourData& flavour)
 {
 	uint32_t tag = CreateShaderTag(flavour);
@@ -675,6 +735,22 @@ bool FShader::Bind(ShaderFlavourData& flavour)
 	auto pos = variants.find(tag);
 
 	if (pos == variants.end())
+	{
+		CompileVariant(tag, flavour);
+		RecordVariant(mNXId, tag);
+	}
+	else
+	{
+		cur = pos->second;
+	}
+
+	GLRenderer->mShaderManager->SetActiveShader(this->cur);
+	return true;
+}
+
+bool FShader::CompileVariant(uint32_t tag, ShaderFlavourData &flavour)
+{
+	NXPERF_SCOPE(shader_ms, &nxperf.shaders);
 	{
 		FString variantConfig = "\n";
 
@@ -716,13 +792,85 @@ bool FShader::Bind(ShaderFlavourData& flavour)
 		Load(mName.GetChars(), mVertProg.GetChars(), mFragProg.GetChars(), mFragProg2.GetChars(), mLightProg.GetChars(), (mDefinesBase + variantConfig).GetChars());
 		variants.insert(std::make_pair(tag, cur));
 	}
-	else
-	{
-		cur = pos->second;
-	}
-
-	GLRenderer->mShaderManager->SetActiveShader(this->cur);
 	return true;
+}
+
+//==========================================================================
+//
+// Precompilation of variants used in earlier sessions (Switch)
+//
+//==========================================================================
+
+FShader *FShaderManager::FindById(const char *id)
+{
+	if (strlen(id) < 4) return nullptr;
+	unsigned pass = unsigned(id[2] - '0');
+	if (pass >= mPassShaders.Size()) return nullptr;
+	return mPassShaders[pass]->FindById(id);
+}
+
+bool FShaderManager::PrecompileNextVariant()
+{
+#if defined(__SWITCH__) || defined(NX_TEST_VARIANTS)
+	if (!mPrecompileLoaded)
+	{
+		mPrecompileLoaded = true;
+		FILE *f = fopen(VariantListFile, "r");
+		if (f)
+		{
+			char line[128];
+			bool first = true;
+			TMap<FString, bool> seen;
+			while (fgets(line, sizeof(line), f))
+			{
+				if (first)
+				{
+					first = false;
+					if (strncmp(line, VariantListHeader, strlen(VariantListHeader)) != 0) break;
+					continue;
+				}
+				FString l = line;
+				l.StripRight();
+				if (l.IsEmpty() || seen.CheckKey(l)) continue;
+				seen.Insert(l, true);
+				KnownVariants.Insert(l, true);
+				mPrecompileList.Push(l);
+			}
+			fclose(f);
+		}
+		if (mPrecompileList.Size() > 0) Printf("Precompiling %u shader variants\n", mPrecompileList.Size());
+	}
+	while (mPrecompilePos < mPrecompileList.Size())
+	{
+		FString &l = mPrecompileList[mPrecompilePos++];
+		char id[64];
+		unsigned tag;
+		if (sscanf(l.GetChars(), "%63s %x", id, &tag) != 2) continue;
+		FShader *sh = FindById(id);
+		if (sh == nullptr || sh->HasVariant(tag)) continue;
+		ShaderFlavourData flavour;
+		FShader::DecodeShaderTag(tag, flavour);
+		auto saved = sh->cur;
+		sh->CompileVariant(tag, flavour);
+		sh->cur = saved;
+		// Load() leaves no program bound, so make sure the next bind really binds.
+		glUseProgram(0);
+		mActiveShader = nullptr;
+		return false;
+	}
+#endif
+	return true;
+}
+
+FShader *FShaderCollection::FindById(const char *id)
+{
+	if (strlen(id) < 4 || id[1] != 'p') return nullptr;
+	char kind = id[0];
+	int index = atoi(id + 3);
+	if (kind == 'M' && index >= 0 && index < (int)mMaterialShaders.Size()) return mMaterialShaders[index];
+	if (kind == 'N' && index >= 0 && index < (int)mMaterialShadersNAT.Size()) return mMaterialShadersNAT[index];
+	if (kind == 'E' && index >= 0 && index < MAX_EFFECTS) return mEffectShaders[index];
+	return nullptr;
 }
 
 //==========================================================================
@@ -829,10 +977,12 @@ void FShaderCollection::CompileShaders(EPassType passType)
 	for(int i=0;defaultshaders[i].ShaderName != NULL;i++)
 	{
 		FShader *shc = Compile(defaultshaders[i].ShaderName, defaultshaders[i].gettexelfunc, defaultshaders[i].lightfunc, defaultshaders[i].Defines, true, passType);
+		shc->mNXId.Format("Mp%d%02d", (int)passType, i);
 		mMaterialShaders.Push(shc);
 		if (i < SHADER_NoTexture)
 		{
 			shc = Compile(defaultshaders[i].ShaderName, defaultshaders[i].gettexelfunc, defaultshaders[i].lightfunc, defaultshaders[i].Defines, false, passType);
+			shc->mNXId.Format("Np%d%02d", (int)passType, i);
 			mMaterialShadersNAT.Push(shc);
 		}
 	}
@@ -855,7 +1005,11 @@ void FShaderCollection::CompileShaders(EPassType passType)
 		{
 			delete eff;
 		}
-		else mEffectShaders[i] = eff;
+		else
+		{
+			eff->mNXId.Format("Ep%d%02d", (int)passType, i);
+			mEffectShaders[i] = eff;
+		}
 	}
 }
 

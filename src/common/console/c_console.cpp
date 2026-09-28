@@ -1202,12 +1202,71 @@ static bool C_HandleKey (event_t *ev, FCommandBuffer &buffer)
 	return true;
 }
 
+static bool C_HandleJoystick (event_t *ev, FCommandBuffer &buffer)
+{
+	if (ev->type == EV_KeyDown)
+	{
+		switch (ev->data1)
+		{
+#ifdef __SWITCH__
+			case KEY_PAD_A:
+			{
+				// Get command string from OSK instead
+				char cmdbuf[1024];
+				cmdbuf[0] = 0;
+				// Ask for input
+				if (!I_OnScreenKeyboard("Enter command", cmdbuf, sizeof(cmdbuf)))
+					return true; // no input
+				buffer.AddString(cmdbuf);
+				HistPos = NULL;
+				// feed fake return
+				ev->type = EV_GUI_Event;
+				ev->subtype = EV_GUI_KeyDown;
+				ev->data1 = '\r';
+				return true;
+			}
+#endif
+			case KEY_PAD_X:
+				// feed fake backspace
+				ev->type = EV_GUI_Event;
+				ev->subtype = EV_GUI_KeyDown;
+				ev->data1 = GK_BACKSPACE;
+				return true;
+			case KEY_PAD_DPAD_UP:
+				// feed fake keyboard up
+				ev->type = EV_GUI_Event;
+				ev->subtype = EV_GUI_KeyDown;
+				ev->data1 = GK_UP;
+				return true;
+			case KEY_PAD_DPAD_DOWN:
+				// feed fake keyboard down
+				ev->type = EV_GUI_Event;
+				ev->subtype = EV_GUI_KeyDown;
+				ev->data1 = GK_DOWN;
+				return true;
+			default:
+				break;
+		}
+	}
+	return false;
+}
+
 bool C_Responder (event_t *ev)
 {
-	if (ev->type != EV_GUI_Event ||
-		ConsoleState == c_up ||
+	if (ConsoleState == c_up ||
 		ConsoleState == c_rising ||
 		menuactive != MENU_Off)
+	{
+		return false;
+	}
+
+	// allow joystick controls
+	if (C_HandleJoystick(ev, CmdLine))
+	{
+		return true;
+	}
+
+	if (ev->type != EV_GUI_Event)
 	{
 		return false;
 	}

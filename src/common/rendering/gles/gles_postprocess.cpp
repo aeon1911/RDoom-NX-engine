@@ -21,6 +21,7 @@
 */
 
 #include "gles_system.h"
+#include "nx_perf.h"
 #include "m_png.h"
 #include "gles_buffers.h"
 #include "gles_framebuffer.h"
@@ -87,6 +88,7 @@ void FGLRenderer::CopyToBackbuffer(const IntRect *bounds, bool applyGamma)
 	screen->Draw2D();	// draw all pending 2D stuff before copying the buffer
 	twod->Clear();
 
+	NXPERF_SCOPE(present_ms, nullptr);
 	FGLPostProcessState savedState;
 	savedState.SaveTextureBindings(2);
 

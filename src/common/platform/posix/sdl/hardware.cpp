@@ -51,8 +51,16 @@ void I_ShutdownGraphics ()
 	SDL_QuitSubSystem (SDL_INIT_VIDEO);
 }
 
+#ifdef __SWITCH__
+#include "../nx/nx_loadscreen.h"
+#endif
+
 void I_InitGraphics ()
 {
+#ifdef __SWITCH__
+	// hand the display over from the loading screen to SDL
+	NXLS_Stop();
+#endif
 #ifdef __APPLE__
 	SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_SPACES, "0");
 #endif // __APPLE__

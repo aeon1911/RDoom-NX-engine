@@ -52,7 +52,9 @@ void CalculateCPUSpeed(void);
 // Return a seed value for the RNG.
 unsigned int I_MakeRNGSeed();
 
-
+#ifdef __SWITCH__
+bool I_OnScreenKeyboard(const char *hint, char *out, int outlen);
+#endif
 
 void I_StartFrame (void);
 

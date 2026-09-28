@@ -5623,6 +5623,11 @@ AActor *AActor::StaticSpawn(FLevelLocals *Level, PClassActor *type, const DVecto
 	}
 
 	ConstructActor(actor, pos, SpawningMapThing);
+	{
+		// decode this class's sprites in the background the first time it shows up (Switch port)
+		extern void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent);
+		NXPrefetch_Class(type, 320, false);
+	}
 	return actor;
 }
 

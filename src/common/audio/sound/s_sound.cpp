@@ -25,6 +25,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "nx_perf.h"
+#include "nx_jobs.h"
+#include "i_time.h"
+#include <mutex>
+#include <atomic>
+#include <memory>
+#include <thread>
+#include <chrono>
+#include <unordered_map>
+#include <vector>
+#include "c_cvars.h"
+EXTERN_CVAR(Int, nx_perflog)
 #include "c_cvars.h"
 #include "gamestate.h"
 #include "i_soundinternal.h"
@@ -70,6 +82,203 @@ void SoundEngine::Init(TArray<uint8_t> &curve)
 	S_SoundCurve = std::move(curve);
 }
 
+
+//==========================================================================
+//
+// Background sound loading (Switch port)
+//
+// Decoding a sound (mostly Ogg Vorbis in big mods) takes several
+// milliseconds on the Switch's CPU, and Project Brutality plays dozens of
+// different sounds when fighting. Sounds that are not loaded yet are now
+// decoded by a worker thread and start playing as soon as they are ready
+// (a few frames later) instead of freezing the game.
+//
+//==========================================================================
+
+#ifdef __SWITCH__
+CVAR(Bool, snd_asyncload, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, snd_keepsounds, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
+CVAR(Bool, snd_asyncload, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, snd_keepsounds, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
+
+struct NXSoundJob
+{
+	int sfxindex;
+	int lumpnum;
+	bool raw;
+	int rawrate;
+	int loopstart, loopend;
+	SoundHandle result{};
+	std::atomic<bool> done{ false };
+};
+
+static std::mutex nxSndMutex;
+static std::vector<std::shared_ptr<NXSoundJob>> nxSndJobs;
+static std::unordered_map<FSoundChan*, uint64_t> nxPendingSince;
+
+bool SoundEngine::NXIsLoading(int index)
+{
+	std::lock_guard<std::mutex> lock(nxSndMutex);
+	for (auto &j : nxSndJobs) if (j->sfxindex == index) return true;
+	return false;
+}
+
+void SoundEngine::NXQueueLoad(sfxinfo_t *sfx)
+{
+	int index = int(sfx - &S_sfx[0]);
+	auto job = std::make_shared<NXSoundJob>();
+	job->sfxindex = index;
+	job->lumpnum = sfx->lumpnum;
+	job->raw = sfx->bLoadRAW;
+	job->rawrate = sfx->RawRate;
+	job->loopstart = sfx->LoopStart;
+	job->loopend = sfx->LoopEnd;
+	{
+		std::lock_guard<std::mutex> lock(nxSndMutex);
+		for (auto &j : nxSndJobs) if (j->sfxindex == index) return;
+		nxSndJobs.push_back(job);
+	}
+	NXJobs_Push([this, job]()
+	{
+		SoundHandle h{};
+		auto sfxdata = ReadSound(job->lumpnum);
+		int size = (int)sfxdata.size();
+		if (size > 8)
+		{
+			auto sfxp = sfxdata.data();
+			int32_t dmxlen = LittleLong(((int32_t *)sfxp)[1]);
+			if (size > 19 && memcmp(sfxp, "Creative Voice File", 19) == 0)
+				h = GSnd->LoadSoundVoc(sfxp, size);
+			else if (job->raw)
+				h = GSnd->LoadSoundRaw(sfxp, size, job->rawrate, 1, 8, job->loopstart);
+			else if (((uint8_t *)sfxp)[0] == 3 && ((uint8_t *)sfxp)[1] == 0 && dmxlen <= size - 8)
+			{
+				int frequency = LittleShort(((uint16_t *)sfxp)[1]);
+				if (frequency == 0) frequency = 11025;
+				h = GSnd->LoadSoundRaw(sfxp + 8, dmxlen, frequency, 1, 8, job->loopstart);
+			}
+			else
+				h = GSnd->LoadSound(sfxp, size, job->loopstart, job->loopend);
+		}
+		job->result = h;
+		job->done = true;
+	}, NXJOB_NOW);
+}
+
+void SoundEngine::NXApplyLoads(bool wait, int onlyindex)
+{
+	std::vector<std::shared_ptr<NXSoundJob>> finished;
+	for (;;)
+	{
+		bool waiting = false;
+		{
+			std::lock_guard<std::mutex> lock(nxSndMutex);
+			for (size_t i = 0; i < nxSndJobs.size();)
+			{
+				auto &j = nxSndJobs[i];
+				if (onlyindex >= 0 && j->sfxindex != onlyindex) { i++; continue; }
+				if (j->done)
+				{
+					finished.push_back(j);
+					nxSndJobs.erase(nxSndJobs.begin() + i);
+				}
+				else
+				{
+					waiting = true;
+					i++;
+				}
+			}
+		}
+		if (!wait || !waiting) break;
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
+	for (auto &j : finished)
+	{
+		if ((unsigned)j->sfxindex >= S_sfx.Size())
+		{
+			if (j->result.isValid()) GSnd->UnloadSound(j->result);
+			continue;
+		}
+		sfxinfo_t *sfx = &S_sfx[j->sfxindex];
+		if (sfx->data.isValid())
+		{
+			if (j->result.isValid()) GSnd->UnloadSound(j->result);
+		}
+		else if (j->result.isValid() && sfx->lumpnum == j->lumpnum)
+		{
+			sfx->data = j->result;
+			if (nx_perflog >= 3) Printf("NXASYNCSND %s\n", sfx->name.GetChars());
+		}
+		else
+		{
+			if (j->result.isValid()) GSnd->UnloadSound(j->result);
+			if (sfx->lumpnum == j->lumpnum) sfx->lumpnum = sfx_empty;
+		}
+	}
+}
+
+sfxinfo_t *SoundEngine::LoadSoundAsync(sfxinfo_t *sfx, bool *pending)
+{
+	*pending = false;
+	if (GSnd->IsNull() || !snd_asyncload || !NXJobs_Enabled()) return LoadSound(sfx);
+	if (sfx->data.isValid() || sfx->lumpnum == sfx_empty) return sfx;
+	int index = int(sfx - &S_sfx[0]);
+	if (NXIsLoading(index))
+	{
+		*pending = true;
+		return sfx;
+	}
+	// a sound that shares its lump with one that's already loaded just gets linked
+	for (unsigned i = 0; i < S_sfx.Size(); i++)
+	{
+		if (S_sfx[i].data.isValid() && S_sfx[i].link == sfxinfo_t::NO_LINK && S_sfx[i].lumpnum == sfx->lumpnum &&
+			(!sfx->bLoadRAW || (sfx->RawRate == S_sfx[i].RawRate)))
+		{
+			sfx->link = FSoundID::fromInt(i);
+			if (sfx->Rolloff.MinDistance == 0) sfx->Rolloff = S_Rolloff;
+			return &S_sfx[i];
+		}
+	}
+	NXQueueLoad(sfx);
+	nxperf.snd_async++;
+	*pending = true;
+	return sfx;
+}
+
+void SoundEngine::NXRestartPending()
+{
+	if (nxPendingSince.empty()) return;
+	uint64_t now = I_msTime();
+	FSoundChan *next;
+	for (FSoundChan *chan = Channels; chan != nullptr; chan = next)
+	{
+		next = chan->NextChan;
+		if (!(chan->ChanFlags & CHANF_NXPENDING)) continue;
+		auto it = nxPendingSince.find(chan);
+		uint64_t since = it != nxPendingSince.end() ? it->second : now;
+		bool loading = NXIsLoading(chan->SoundID.index());
+		bool loop = !!(chan->ChanFlags & CHANF_LOOP);
+		if (loading && now - since < 1000) continue;
+		chan->ChanFlags &= ~CHANF_NXPENDING;
+		if (it != nxPendingSince.end()) nxPendingSince.erase(it);
+		// already started by somebody else - starting it again would orphan an OpenAL source
+		if (!(chan->ChanFlags & CHANF_EVICTED)) continue;
+		// a short sound that would start way too late is better skipped.
+		// Start from the beginning (a delayed start sounds better than cutting off the attack).
+		chan->StartTime = 0;
+		if (!loading && (loop || now - since < 400)) RestartChannel(chan);
+		if ((chan->ChanFlags & CHANF_EVICTED) && !loop) ReturnChannel(chan);
+	}
+	// channels that went away in the meantime
+	for (auto it = nxPendingSince.begin(); it != nxPendingSince.end();)
+	{
+		if (now - it->second > 5000) it = nxPendingSince.erase(it);
+		else ++it;
+	}
+}
+
 //==========================================================================
 //
 // SoundEngine::Clear
@@ -78,6 +287,8 @@ void SoundEngine::Init(TArray<uint8_t> &curve)
 
 void SoundEngine::Clear()
 {
+	NXApplyLoads(true);
+	nxPendingSince.clear();
 	StopAllChannels();
 	UnloadAllSounds();
 	S_sfx.Clear();
@@ -93,6 +304,8 @@ void SoundEngine::Clear()
 void SoundEngine::Shutdown ()
 {
 	FSoundChan *chan, *next;
+	NXApplyLoads(true);
+	nxPendingSince.clear();
 
 	StopAllChannels();
 
@@ -139,6 +352,8 @@ void SoundEngine::CacheMarkedSounds()
 			CacheSound(&S_sfx[i]);
 		}
 	}
+	// Switch: there is plenty of RAM, reloading sounds on every map costs more
+	if (snd_keepsounds) return;
 	for (unsigned i = 1; i < S_sfx.Size(); ++i)
 	{
 		if (!S_sfx[i].bUsed && S_sfx[i].link == sfxinfo_t::NO_LINK)
@@ -168,7 +383,8 @@ void SoundEngine::CacheSound (sfxinfo_t *sfx)
 		}
 		else
 		{
-			LoadSound(sfx);
+			bool pending;
+			LoadSoundAsync(sfx, &pending);
 			sfx->bUsed = true;
 		}
 	}
@@ -182,8 +398,10 @@ void SoundEngine::CacheSound (sfxinfo_t *sfx)
 
 void SoundEngine::UnloadSound (sfxinfo_t *sfx)
 {
+	NXApplyLoads(true, int(sfx - &S_sfx[0]));
 	if (sfx->data.isValid())
 	{
+		if (nx_perflog >= 3) Printf("NXUNLOAD %s\n", sfx->name.GetChars());
 		GSnd->UnloadSound(sfx->data);
 		DPrintf(DMSG_NOTIFY, "Unloaded sound \"%s\" (%td)\n", sfx->name.GetChars(), sfx - &S_sfx[0]);
 	}
@@ -508,8 +726,10 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 		return NULL;
 	}
 
-	// Make sure the sound is loaded.
-	sfx = LoadSound(sfx);
+	// Make sure the sound is loaded (in the background if possible).
+	bool nxpending = false;
+	sfx = LoadSoundAsync(sfx, &nxpending);
+	if (nxpending) chanflags |= CHANF_EVICTED | CHANF_NXPENDING;
 
 	// The empty sound never plays.
 	if (sfx->lumpnum == sfx_empty)
@@ -579,6 +799,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 				? (sfxlength > 0 ? fmodf(startTime, sfxlength) : 0.f)
 				: clamp(startTime, 0.f, sfxlength);
 
+		NXPERF_SCOPE(sndstart_ms, &nxperf.sndstarts);
 		if (attenuation > 0 && type != SOURCE_None)
 		{
 			chan = (FSoundChan*)GSnd->StartSound3D (sfx->data, &listener, float(volume), rolloff, float(attenuation), pitch, basepriority, pos, vel, channel, startflags, NULL, startTime);
@@ -588,11 +809,16 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 			chan = (FSoundChan*)GSnd->StartSound (sfx->data, float(volume), pitch, startflags, NULL, startTime);
 		}
 	}
-	if (chan == NULL && (chanflags & CHANF_LOOP))
+	if (chan == NULL && (chanflags & (CHANF_LOOP | CHANF_NXPENDING)))
 	{
 		chan = (FSoundChan*)GetChannel(NULL);
 		GSnd->MarkStartTime(chan);
 		chanflags |= CHANF_EVICTED;
+		if (chanflags & CHANF_NXPENDING)
+		{
+			chan->Rolloff = *rolloff;
+			nxPendingSince[chan] = I_msTime();
+		}
 	}
 	if (attenuation > 0 && type != SOURCE_None)
 	{
@@ -717,9 +943,11 @@ void SoundEngine::RestartChannel(FSoundChan *chan)
 sfxinfo_t *SoundEngine::LoadSound(sfxinfo_t *sfx)
 {
 	if (GSnd->IsNull()) return sfx;
+	if (!sfx->data.isValid()) NXApplyLoads(true, int(sfx - &S_sfx[0]));
 
 	while (!sfx->data.isValid())
 	{
+		NXPERF_SCOPE(sound_ms, &nxperf.sounds);
 		unsigned int i;
 
 		if (sfx->lumpnum == sfx_empty)
@@ -729,6 +957,7 @@ sfxinfo_t *SoundEngine::LoadSound(sfxinfo_t *sfx)
 
 		// See if there is another sound already initialized with this lump. If so,
 		// then set this one up as a link, and don't load the sound again.
+		double nxscan0 = NXPerf_NowMS();
 		for (i = 0; i < S_sfx.Size(); i++)
 		{
 			if (S_sfx[i].data.isValid() && S_sfx[i].link == sfxinfo_t::NO_LINK && S_sfx[i].lumpnum == sfx->lumpnum &&
@@ -744,9 +973,12 @@ sfxinfo_t *SoundEngine::LoadSound(sfxinfo_t *sfx)
 		}
 
 		DPrintf(DMSG_NOTIFY, "Loading sound \"%s\" (%td)\n", sfx->name.GetChars(), sfx - &S_sfx[0]);
+		if (nx_perflog >= 3) Printf("NXSCAN %u entries %.2fms\n", S_sfx.Size(), NXPerf_NowMS() - nxscan0);
 
+		double nxt0 = NXPerf_NowMS();
 		auto sfxdata = ReadSound(sfx->lumpnum);
 		int size = (int)sfxdata.size();
+		double nxt1 = NXPerf_NowMS();
 		if (size > 8)
 		{
 			auto sfxp = sfxdata.data();
@@ -775,6 +1007,7 @@ sfxinfo_t *SoundEngine::LoadSound(sfxinfo_t *sfx)
 			}
 		}
 
+		if (nx_perflog >= 3) Printf("NXSND %s size=%d read=%.2fms decode=%.2fms\n", sfx->name.GetChars(), size, nxt1 - nxt0, NXPerf_NowMS() - nxt1);
 		if (!sfx->data.isValid())
 		{
 			if (sfx->lumpnum != sfx_empty)
@@ -1213,7 +1446,11 @@ void SoundEngine::RestoreEvictedChannel(FSoundChan *chan)
 		return;
 	}
 	RestoreEvictedChannel(chan->NextChan);
-	if (chan->ChanFlags & CHANF_EVICTED)
+	if (chan->ChanFlags & CHANF_NXPENDING)
+	{
+		// waiting for a background load, NXRestartPending takes care of it
+	}
+	else if (chan->ChanFlags & CHANF_EVICTED)
 	{
 		RestartChannel(chan);
 		if (!(chan->ChanFlags & CHANF_LOOP))
@@ -1259,6 +1496,9 @@ void SoundEngine::RestoreEvictedChannels()
 void SoundEngine::UpdateSounds(int time)
 {
 	FVector3 pos, vel;
+
+	NXApplyLoads(false);
+	NXRestartPending();
 
 	for (FSoundChan* chan = Channels; chan != NULL; chan = chan->NextChan)
 	{
@@ -1437,6 +1677,7 @@ void SoundEngine::StopChannel(FSoundChan *chan)
 
 void SoundEngine::UnloadAllSounds()
 {
+	NXApplyLoads(true);
 	for (unsigned i = 0; i < S_sfx.Size(); i++)
 	{
 		UnloadSound(&S_sfx[i]);
@@ -1445,6 +1686,7 @@ void SoundEngine::UnloadAllSounds()
 
 void SoundEngine::Reset()
 {
+	NXApplyLoads(true);
 	EvictAllChannels();
 	I_CloseSound();
 	I_InitSound();

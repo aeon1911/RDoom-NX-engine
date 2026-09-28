@@ -129,6 +129,13 @@ static void CollectDefaultSearchPaths()
 	DefaultSearchPaths.Push(local_app_support);
 	DefaultSearchPaths.Push("$PROGDIR");
 
+#elif defined(__SWITCH__)
+
+	// Switch: everything lives next to the .nro (sdmc:/switch/gzdoom)
+	DefaultSearchPaths.Push("$PROGDIR/iwads");
+	DefaultSearchPaths.Push("$PROGDIR/pwads");
+	DefaultSearchPaths.Push("$PROGDIR");
+
 #elif !defined(__unix__) && !defined(__HAIKU__)
 
 	DefaultSearchPaths.Push("$HOME");

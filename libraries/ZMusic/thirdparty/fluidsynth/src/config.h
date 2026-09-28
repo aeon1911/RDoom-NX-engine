@@ -123,7 +123,9 @@
 #endif
 
 /* Define to 1 if you have the <windows.h> header file. */
+#ifdef _WIN32
 #define HAVE_WINDOWS_H 1
+#endif
 
 /* Define to 1 if you have the <getopt.h> header file. */
 /* #undef HAVE_GETOPT_H */
@@ -273,7 +275,7 @@
 #define HAVE_SOCKLEN_T 1
 
 /* Define if using glib stubs instead of real glib. */
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__SWITCH__)
 #define WITH_GLIB_STUBS
 #endif
 

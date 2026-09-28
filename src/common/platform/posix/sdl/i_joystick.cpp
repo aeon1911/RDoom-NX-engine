@@ -672,7 +672,18 @@ void I_StartupJoysticks()
 {
 #ifndef NO_SDL_JOYSTICK
 	if(SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_HAPTIC | SDL_INIT_GAMECONTROLLER) >= 0)
+	{
+#ifdef __SWITCH__
+		// devkitPro's SDL maps the Switch pad by position (Xbox layout). Use the
+		// Nintendo labels instead, so A confirms and B goes back like on the console.
+		SDL_GameControllerAddMapping("000038f853776974636820436f6e7400,Switch Controller,"
+			"a:b0,b:b1,x:b2,y:b3,back:b11,start:b10,"
+			"dpdown:b15,dpleft:b12,dpright:b14,dpup:b13,"
+			"leftshoulder:b6,leftstick:b4,lefttrigger:b8,leftx:a0,lefty:a1,"
+			"rightshoulder:b7,rightstick:b5,righttrigger:b9,rightx:a2,righty:a3,");
+#endif
 		JoystickManager = new SDLInputJoystickManager();
+	}
 #endif
 }
 void I_ShutdownInput()

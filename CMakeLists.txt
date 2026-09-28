@@ -68,6 +68,14 @@ if(CMAKE_CROSSCOMPILING)
 	include(${IMPORT_EXECUTABLES})
 endif()
 
+if( NINTENDO_SWITCH )
+	# our gcc complains about the use of alloca, stricmp, etc without including the appropriate headers
+	# unless we just do this
+	set( CMAKE_CXX_EXTENSIONS ON )
+	# used in both gzdoom and launcher
+	set( SWITCH_APP_VERSION "uz5.0.3-nx3.7" )
+endif()
+
 # Recursive function to place PK3 archive source files into a hierarchy of source file in the IDE
 function( assort_pk3_source_folder FOLDER_NAME )
 	# Assort source files into folders in the IDE
@@ -289,6 +297,12 @@ if( APPLE )
 else()
 	option (HAVE_GLES2 "Enable GLES2 support" ON)
 endif()
+option (NO_DISCORDRPC "Disable Discord RPC support" OFF)
+
+if( NINTENDO_SWITCH )
+	set( HAVE_VULKAN OFF )
+	set( NO_DISCORDRPC ON )
+endif()
 
 if( MSVC )
 	# Eliminate unreferenced functions and data
@@ -306,6 +320,10 @@ if( MSVC )
 
 	if ( HAVE_GLES2 )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_GLES2" )
+	endif()
+
+	if ( NO_DISCORDRPC )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DNO_DISCORDRPC" )
 	endif()
 
 	# Use SSE 2 as minimum always as the true color drawers needs it for __vectorcall
@@ -346,6 +364,10 @@ else()
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} -DHAVE_GLES2" )
 	endif()
 
+	if ( NO_DISCORDRPC )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} -DNO_DISCORDRPC" )
+	endif()
+
 	if ( UNIX )
 		include(CheckSymbolExists)
 		check_symbol_exists( "fts_set" "sys/types.h;sys/stat.h;fts.h" HAVE_FTS )
@@ -375,6 +397,9 @@ else()
 			# If we're compiling with a custom GCC on the Mac (which we know since g++-4.2 doesn't support C++11) statically link libgcc.
 			set( ALL_C_FLAGS "-static-libgcc" )
 		endif()
+	elseif( NINTENDO_SWITCH )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} -D__SWITCH__ -fno-omit-frame-pointer -I$ENV{PORTLIBS_PREFIX}/include -I$ENV{DEVKITPRO}/libnx/include" )
+		set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-class-memaccess" )
 	elseif( NOT MINGW AND NOT HAIKU AND NOT "${CMAKE_SYSTEM_NAME}" STREQUAL "SunOS" )
 		# Generic GCC/Clang requires position independent executable to be enabled explicitly
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} -fPIE" )
@@ -491,6 +516,10 @@ install(DIRECTORY docs/
 
 option( DYN_OPENAL "Dynamically load OpenAL" ON )
 option( BUILD_NONFREE "Build non-free assets used by commercial games" ON )
+
+if( NINTENDO_SWITCH )
+	set( DYN_OPENAL OFF )
+endif()
 
 add_subdirectory( src )
 add_subdirectory( libraries/lzma )

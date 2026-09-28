@@ -504,6 +504,11 @@ bool HUDSprite::GetWeaponRect(HWDrawInfo *di, DPSprite *psp, float sx, float sy,
 
 	auto tex = TexMan.GetGameTexture(lump, false);
 	if (!tex || !tex->isValid()) return false;
+	{
+		// Switch port: frames are decoded in the background, hold the previous one meanwhile
+		extern FGameTexture *NXHoldWeaponFrame(DPSprite *psp, FGameTexture *tex, bool &mirror);
+		tex = NXHoldWeaponFrame(psp, tex, mirror);
+	}
 	auto& spi = tex->GetSpritePositioning(1);
 
 	float vw = (float)viewwidth;
@@ -682,6 +687,12 @@ void HWDrawInfo::PreparePlayerSprites2D(sector_t * viewsector, area_t in_area)
 
 	AActor * playermo = players[consoleplayer].camera;
 	player_t * player = playermo->player;
+
+	{
+		// the weapon's animations get decoded in the background (Switch port)
+		extern void NXPrefetch_Player(player_t *player);
+		NXPrefetch_Player(player);
+	}
 
 	const auto &vp = Viewpoint;
 

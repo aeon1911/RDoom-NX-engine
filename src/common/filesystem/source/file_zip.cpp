@@ -23,6 +23,7 @@
 */
 
 #include <time.h>
+#include <mutex>
 #include <stdexcept>
 #include <cstdint>
 #include "w_zip.h"
@@ -344,6 +345,9 @@ FCompressedBuffer FZipFile::GetRawData(uint32_t entry)
 //
 //==========================================================================
 
+extern thread_local bool mainThread;
+static std::mutex EntryAddressMutex;
+
 void FZipFile::SetEntryAddress(uint32_t entry)
 {
 	// This file is inside a zip and has not been opened before.
@@ -352,8 +356,21 @@ void FZipFile::SetEntryAddress(uint32_t entry)
 	FZipLocalFileHeader localHeader;
 	int skiplen;
 
-	Reader.Seek(Entries[entry].Position, FileReader::SeekSet);
-	Reader.Read(&localHeader, sizeof(localHeader));
+	// background threads (asset decoding) must not touch the shared reader
+	std::lock_guard<std::mutex> lock(EntryAddressMutex);
+	if (!(Entries[entry].Flags & RESFF_NEEDFILESTART)) return;
+	if (mainThread)
+	{
+		Reader.Seek(Entries[entry].Position, FileReader::SeekSet);
+		Reader.Read(&localHeader, sizeof(localHeader));
+	}
+	else
+	{
+		FileReader fr;
+		if (!fr.OpenFile(FileName)) return;
+		fr.Seek(Entries[entry].Position, FileReader::SeekSet);
+		fr.Read(&localHeader, sizeof(localHeader));
+	}
 	skiplen = LittleShort(localHeader.NameLength) + LittleShort(localHeader.ExtraLength);
 	Entries[entry].Position += sizeof(localHeader) + skiplen;
 	Entries[entry].Flags &= ~RESFF_NEEDFILESTART;

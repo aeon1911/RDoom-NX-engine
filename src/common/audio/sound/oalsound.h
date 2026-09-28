@@ -40,6 +40,10 @@
 #define AL_NO_PROTOTYPES
 #include "thirdparty/al.h"
 #include "thirdparty/alc.h"
+#elif defined(__SWITCH__)
+// static OpenAL-soft 1.21 on Switch: use the bundled (newer) headers so they match alext.h
+#include "thirdparty/al.h"
+#include "thirdparty/alc.h"
 #else
 #include "al.h"
 #include "alc.h"

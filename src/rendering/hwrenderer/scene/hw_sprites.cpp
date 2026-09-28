@@ -88,6 +88,9 @@ CUSTOM_CVAR(Int, gl_fuzztype, 8, CVAR_ARCHIVE)
 	if (self < 0 || self > 8) self = 0;
 }
 
+// Switch port (gles_asynctex.cpp): world sprite not on the GPU yet
+extern bool (*NXSpriteDrawableHook)(FGameTexture *gtex, int translation, int scaleflags);
+
 //==========================================================================
 //
 //
@@ -96,6 +99,14 @@ CUSTOM_CVAR(Int, gl_fuzztype, 8, CVAR_ARCHIVE)
 
 void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
+	// Switch: an image that is still being decoded (or waits for its upload)
+	// would be drawn with an invisible placeholder - skip the whole draw call
+	if (texture && !modelframe && NXSpriteDrawableHook != nullptr)
+	{
+		uint32_t stype = actor ? uint32_t(actor->renderflags & RF_SPRITETYPEMASK) : 0;
+		if (!NXSpriteDrawableHook(texture, translation.index(), (stype == RF_FACESPRITE) ? CTF_Expand : 0)) return;
+	}
+
 	bool additivefog = false;
 	bool foglayer = false;
 	int rel = fullbright ? 0 : getExtraLight();

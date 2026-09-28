@@ -228,6 +228,23 @@ static TMap<SDL_Scancode, uint8_t> InitKeyScanMap ()
 }
 static const TMap<SDL_Scancode, uint8_t> KeyScanToDIK(InitKeyScanMap());
 
+static inline int JoystickMapButton (int sdlbtn)
+{
+#ifdef __SWITCH__
+	// map to XInput buttons
+	static const int btnmap[16] = 
+	{
+		KEY_PAD_A,         KEY_PAD_B,        KEY_PAD_X,          KEY_PAD_Y,
+		KEY_PAD_LTHUMB,    KEY_PAD_RTHUMB,   KEY_PAD_LSHOULDER,  KEY_PAD_RSHOULDER,
+		KEY_PAD_LTRIGGER,  KEY_PAD_RTRIGGER, KEY_PAD_BACK,       KEY_PAD_START,
+		KEY_PAD_DPAD_LEFT, KEY_PAD_DPAD_UP,  KEY_PAD_DPAD_RIGHT, KEY_PAD_DPAD_DOWN,
+	};
+	return (sdlbtn >= 0 && sdlbtn < 16) ? btnmap[sdlbtn] : 0;
+#else
+	return KEY_FIRSTJOYBUTTON + sdlbtn; // identity map
+#endif
+}
+
 static void I_CheckGUICapture ()
 {
 	bool wantCapt = sysCallbacks.WantGuiCapture && sysCallbacks.WantGuiCapture();
@@ -609,7 +626,7 @@ void MessagePump (const SDL_Event &sev)
 		if (SDL_GameControllerFromInstanceID(sev.jdevice.which))
 			break; // let SDL_CONTROLLERBUTTON* handle this
 		event.type = sev.type == SDL_JOYBUTTONDOWN ? EV_KeyDown : EV_KeyUp;
-		event.data1 = KEY_FIRSTJOYBUTTON + sev.jbutton.button;
+		event.data1 = JoystickMapButton(sev.jbutton.button);
 		if(event.data1 != 0)
 			I_JoyConsumeEvent(sev.jdevice.which, &event);
 		break;

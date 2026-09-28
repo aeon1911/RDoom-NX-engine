@@ -24,6 +24,7 @@
 #include "hw_portal.h"
 #include "hw_renderstate.h"
 #include "hw_drawinfo.h"
+#include "nx_perf.h"
 #include "po_man.h"
 #include "models.h"
 #include "hw_clock.h"
@@ -469,6 +470,20 @@ HWDecal *HWDrawInfo::AddDecal(bool onmirror)
 
 void HWDrawInfo::CreateScene(bool drawpsprites)
 {
+	NXPERF_SCOPE(bsp_ms, nullptr);
+	struct NXCountItems
+	{
+		HWDrawInfo *di;
+		~NXCountItems()
+		{
+			for (int i = 0; i < GLDL_TYPES; i++)
+			{
+				int n = (int)di->drawlists[i].drawitems.Size();
+				nxperf.drawitems += n;
+				if (i == GLDL_TRANSLUCENT) nxperf.transitems += n;
+			}
+		}
+	} nxcount{ this };
 	const auto &vp = Viewpoint;
 	angle_t a1 = FrustumAngle(); // horizontally clip the back of the viewport
 	mClipper->SafeAddClipRangeRealAngles(vp.Angles.Yaw.BAMs() + a1, vp.Angles.Yaw.BAMs() - a1);

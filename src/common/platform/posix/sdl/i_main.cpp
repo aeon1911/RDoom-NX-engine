@@ -33,7 +33,10 @@
 #include <sys/param.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#ifndef __SWITCH__
+#include <sys/param.h>
 #include <sys/utsname.h>
+#endif
 #include <unistd.h>
 
 #include "c_console.h"
@@ -122,6 +125,9 @@ FString I_DetectOS()
 {
 	FString operatingSystem;
 
+#ifdef __SWITCH__
+	operatingSystem = "Nintendo Switch";
+#else
 	const char *paths[] = {"/etc/os-release", "/usr/lib/os-release"};
 
 	for (const char *path : paths)
@@ -162,6 +168,7 @@ FString I_DetectOS()
 		operatingSystem.AppendFormat("%s%s %s on %s", separator, unameInfo.sysname, unameInfo.release, unameInfo.machine);
 		sys_ostype.Format("%s %s on %s", unameInfo.sysname, unameInfo.release, unameInfo.machine);
 	}
+#endif // __SWITCH__
 
 	if (operatingSystem.Len() == 0)
 		operatingSystem = "Unknown";
@@ -178,9 +185,13 @@ void I_StartupJoysticks();
 		if (SDL_setenv(k, v, 0)) DEBUG_LOG("Failed to set %s", k); \
 	} while (0);
 
+#ifdef __SWITCH__
+// the real main runs in a thread with a bigger stack, see i_nxsystem.cpp
+#define main GZDoom_RealMain
+#endif
 int main (int argc, char **argv)
 {
-#if !defined (__APPLE__)
+#if !defined (__APPLE__) && !defined(__SWITCH__)
 	{
 		int s[4] = { SIGSEGV, SIGILL, SIGFPE, SIGBUS };
 		cc_install_handlers(argc, argv, 4, s, GAMENAMELOWERCASE "-crash.log", GetCrashInfo);
@@ -192,6 +203,7 @@ int main (int argc, char **argv)
 	// signal(SIGHUP, SignalHandler);
 	// signal(SIGQUIT, SignalHandler);
 
+#ifndef __SWITCH__
 	seteuid (getuid ());
 	// Set LC_NUMERIC environment variable in case some library decides to
 	// clear the setlocale call at least this will be correct.
@@ -199,6 +211,7 @@ int main (int argc, char **argv)
 	setenv ("LC_NUMERIC", "C", 1);
 
 	setlocale (LC_ALL, "C");
+#endif
 
 /* currently this is causing issues in the appimage build
 #ifdef __linux
@@ -215,6 +228,12 @@ int main (int argc, char **argv)
 	}
 
 	Args = new FArgs(argc, argv);
+
+#ifdef __SWITCH__
+	// HACK: force GL4.3 since that's the max available on Switch
+	Args->AppendRawArg("-glversion");
+	Args->AppendRawArg("4.3");
+#endif // __SWITCH__
 
 #ifdef PROGDIR
 	progdir = PROGDIR;
@@ -248,3 +267,12 @@ int main (int argc, char **argv)
 
 	return result;
 }
+
+#ifdef __SWITCH__
+#undef main
+int I_NXRunWithBigStack(int (*fn)(int, char **), int argc, char **argv);
+int main(int argc, char **argv)
+{
+	return I_NXRunWithBigStack(GZDoom_RealMain, argc, argv);
+}
+#endif

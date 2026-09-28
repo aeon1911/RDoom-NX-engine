@@ -17,6 +17,7 @@
 **
 */
 
+#include "nx_perf.h"
 #include "p_local.h"
 #include "p_effect.h"
 #include "c_console.h"
@@ -53,6 +54,7 @@ void D_RunCutscene();
 
 void P_RunClientSideLogic()
 {
+	NXPERF_SCOPE(client_ms, nullptr);
 	C_Ticker();
 	M_Ticker();
 

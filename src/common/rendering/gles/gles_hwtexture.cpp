@@ -21,6 +21,11 @@
 **
 */
 
+#include "nx_perf.h"
+#include "gles_asynctex.h"
+#include "c_cvars.h"
+#include "printf.h"
+EXTERN_CVAR(Int, nx_perflog)
 #include "gles_system.h"
 
 #include "c_cvars.h"
@@ -299,6 +304,7 @@ bool FHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode, i
 	// Bind it to the system.
 	if (!Bind(texunit, needmipmap))
 	{
+		NXPERF_SCOPE(tex_ms, &nxperf.textures);
 		if (flags & CTF_Indexed)
 		{
 			glTextureBytes = 1;
@@ -313,7 +319,16 @@ bool FHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode, i
 
 		if (!tex->isHardwareCanvas())
 		{
-			texbuffer = tex->CreateTexBuffer(translation, flags | CTF_ProcessData);
+			int async = (flags & CTF_Indexed) ? -1 : AsyncTex_Request(tex, translation, flags | CTF_ProcessData, texbuffer);
+			if (async == 0)
+			{
+				// still being decoded in the background: draw nothing for now
+				AsyncTex_BindPlaceholder(texunit);
+				GLRenderer->mSamplerManager->Bind(texunit, clampmode, 255);
+				gl_RenderState.ClearLastMaterial();
+				return true;
+			}
+			if (async < 0) texbuffer = tex->CreateTexBuffer(translation, flags | CTF_ProcessData);
 			w = texbuffer.mWidth;
 			h = texbuffer.mHeight;
 		}
@@ -322,7 +337,15 @@ bool FHardwareTexture::BindOrCreate(FTexture *tex, int texunit, int clampmode, i
 			w = tex->GetWidth();
 			h = tex->GetHeight();
 		}
-		if (!CreateTexture(texbuffer.mBuffer, w, h, texunit, needmipmap, "FHardwareTexture.BindOrCreate"))
+		nxperf.texpixels += (int64_t)w * h;
+		if (nx_perflog >= 3)
+		{
+			FString src = tex->GetImage() ? FString("img") : FString("noimg");
+			Printf("NXTEX %p tr=%d fl=%x %dx%d decode=%.2fms\n", (void*)tex, translation, flags, w, h, NXPerf_NowMS() - nxperf_scope_.start);
+		}
+		bool created = CreateTexture(texbuffer.mBuffer, w, h, texunit, needmipmap, "FHardwareTexture.BindOrCreate");
+		AsyncTex_Uploaded();
+		if (!created)
 		{
 			// could not create texture
 			return false;

@@ -563,6 +563,23 @@ void HWDrawInfo::AddSpecialPortalLines(subsector_t * sub, sector_t * sector, lin
 //
 //==========================================================================
 
+// Switch port: effects and decorations (gore, casings, smoke, torches...)
+// further away than this aren't drawn. Monsters, projectiles, players,
+// pickups and anything that can be shot are always drawn. 0 = off.
+CVAR(Float, nx_effect_cull, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// ...and fading effects (smoke, sparks) below this opacity aren't drawn either
+CVAR(Float, nx_effect_minalpha, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
+static inline bool NXCullEffect(AActor *thing, const DVector3 &viewpos)
+{
+	double cull = nx_effect_cull;
+	double minalpha = nx_effect_minalpha;
+	if (cull <= 0 && minalpha <= 0) return false;
+	if (thing->player || (thing->flags3 & MF3_ISMONSTER) || (thing->flags & (MF_MISSILE | MF_SPECIAL | MF_SHOOTABLE))) return false;
+	if (minalpha > 0 && !(thing->RenderStyle.Flags & (STYLEF_Alpha1 | STYLEF_TransSoulsAlpha)) && thing->Alpha < minalpha) return true;
+	return cull > 0 && (thing->Pos() - viewpos).LengthSquared() > cull * cull;
+}
+
 void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 {
 	sector_t * sec=sub->sector;
@@ -575,6 +592,7 @@ void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 		thing->validcount = validcount;
 
 		if(Viewpoint.bDoOob && thing->Sector->isSecret() && thing->Sector->wasSecret() && !r_radarclipper) continue; // This covers things that are touching non-secret sectors
+		if (NXCullEffect(thing, vp.Pos)) continue;
 		FIntCVar *cvar = thing->GetInfo()->distancecheck;
 		if (cvar != nullptr && *cvar >= 0)
 		{
@@ -608,6 +626,7 @@ void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 	for (msecnode_t *node = sec->sectorportal_thinglist; node; node = node->m_snext)
 	{
 		AActor *thing = node->m_thing;
+		if (NXCullEffect(thing, vp.Pos)) continue;
 		FIntCVar *cvar = thing->GetInfo()->distancecheck;
 		if (cvar != nullptr && *cvar >= 0)
 		{
@@ -1026,6 +1045,17 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 	{
 		jobQueue.ReleaseAll();
 		auto future = renderPool.push([&](int id) {
+#ifdef __SWITCH__
+			// Switch: run the render worker on its own core with the game's
+			// priority, so it really works in parallel with the BSP traversal
+			static thread_local bool nxpinned = false;
+			if (!nxpinned)
+			{
+				extern void I_NXSetupRenderThread();
+				I_NXSetupRenderThread();
+				nxpinned = true;
+			}
+#endif
 			WorkerThread();
 		});
 		if (Viewpoint.bDoOrtho && ((Level->flags3 & LEVEL3_NOFOGOFWAR) || !r_radarclipper)) RenderOrthoNoFog();

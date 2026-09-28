@@ -3,7 +3,7 @@
 #include "window/window.h"
 #include <stdexcept>
 #include <SDL2/SDL_video.h>
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__SWITCH__)
 #include <dlfcn.h>
 #endif
 
@@ -24,7 +24,7 @@ SDL2DisplayBackend::SDL2DisplayBackend()
 	SDL2DisplayWindow::PaintEventNumber = SDL_RegisterEvents(1);
 
 	// SDL2 doesn't have proper native hidpi support for Linux. Cheat a bit here by asking X11 ourselves.
-#if !defined(WIN32) && !defined(__APPLE__)
+#if !defined(WIN32) && !defined(__APPLE__) && !defined(__SWITCH__)
 	const char* driver = SDL_GetCurrentVideoDriver();
 	if (driver && strcmp(driver, "x11") == 0)
 	{

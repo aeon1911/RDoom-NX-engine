@@ -22,6 +22,11 @@
 */
 
 #include "gles_system.h"
+#include "nx_perf.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/nx_glthread.h"
+extern int nx_levelframes;	// d_main.cpp
+#endif
 #include "v_video.h"
 #include "m_png.h"
 
@@ -41,6 +46,7 @@
 #include "r_videoscale.h"
 #include "gles_buffers.h"
 #include "gles_postprocessstate.h"
+#include "gles_asynctex.h"
 #include "v_draw.h"
 #include "printf.h"
 #include "gles_hwtexture.h"
@@ -83,6 +89,7 @@ OpenGLFrameBuffer::OpenGLFrameBuffer(void *hMonitor, bool fullscreen) :
 
 OpenGLFrameBuffer::~OpenGLFrameBuffer()
 {
+	AsyncTex_Shutdown();
 	PPResource::ResetAll();
 
 	if (mVertexData != nullptr) delete mVertexData;
@@ -107,6 +114,7 @@ OpenGLFrameBuffer::~OpenGLFrameBuffer()
 
 void OpenGLFrameBuffer::InitializeState()
 {
+	AsyncTex_Install();
 	static bool first=true;
 
 	mPipelineNbr = gl_pipeline_depth == 0? min(4, HW_MAX_PIPELINE_BUFFERS) : clamp(*gl_pipeline_depth, 1, HW_MAX_PIPELINE_BUFFERS);
@@ -158,6 +166,10 @@ void OpenGLFrameBuffer::InitializeState()
 
 void OpenGLFrameBuffer::Update()
 {
+#ifdef __SWITCH__
+	nx_heartbeat++;
+#endif
+	if (mSwapPending) FinishSwap();	// normally done at BeginFrame; not every screen update starts a frame (wipes, startup)
 	twoD.Reset();
 	Flush3D.Reset();
 
@@ -176,6 +188,7 @@ void OpenGLFrameBuffer::CopyScreenToBuffer(int width, int height, uint8_t* scr)
 	bounds.top = 0;
 	bounds.width = width;
 	bounds.height = height;
+	if (mSwapPending) FinishSwap();
 	GLRenderer->CopyToBackbuffer(&bounds, false);
 
 	// strictly speaking not needed as the glReadPixels should block until the scene is rendered, but this is to safeguard against shitty drivers
@@ -224,19 +237,56 @@ const char* OpenGLFrameBuffer::DeviceName() const
 //==========================================================================
 
 
+// Switch: with the GL driver on its own thread, the end of a frame (fence,
+// buffer swap, waiting for the next vertex buffer) is done at the start of the
+// next frame instead. Every one of those makes the game wait until the driver
+// thread has executed all of the frame, so doing it right away would leave the
+// game idle while the driver works. Deferred, the driver thread renders frame
+// N while the game already runs the logic of frame N+1. The previous frame is
+// finished before anything is drawn to the window again (BeginFrame, Update,
+// wipes, screenshots), so nothing ever lands in a buffer that wasn't shown.
+CVAR(Bool, nx_lateswap, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
 void OpenGLFrameBuffer::Swap()
 {
+	if (mSwapPending) FinishSwap();
+#ifdef __SWITCH__
+	if (nx_lateswap && NX_GLThreadEnabled())
+	{
+		mSwapPending = true;
+		return;
+	}
+#endif
+	FinishSwap();
+}
 
+#ifdef __SWITCH__
+#define NXCRUMB(x) NX_GLCrumb(x)
+#else
+#define NXCRUMB(x)
+#endif
+
+void OpenGLFrameBuffer::FinishSwap()
+{
+	mSwapPending = false;
 	Finish.Reset();
 	Finish.Clock();
 
+	NXCRUMB("frame end: fence");
 	mVertexData->DropSync();
 
+	NXCRUMB("frame end: fps limit");
 	FPSLimit();
+	NXCRUMB("frame end: swap");
 	SwapBuffers();
 
 	mVertexData->NextPipelineBuffer();
-	mVertexData->WaitSync();
+	{
+		NXCRUMB("frame end: wait for vertex buffer");
+		NXPERF_SCOPE(gpuwait_ms, nullptr);
+		mVertexData->WaitSync();
+	}
+	NXCRUMB("frame end done");
 
 	Finish.Unclock();
 	camtexcount = 0;
@@ -252,6 +302,7 @@ void OpenGLFrameBuffer::Swap()
 
 void OpenGLFrameBuffer::SetVSync(bool vsync)
 {
+	if (mSwapPending) FinishSwap();
 	Super::SetVSync(vsync);
 }
 
@@ -345,6 +396,7 @@ void OpenGLFrameBuffer::SetSceneRenderTarget(bool useSSAO)
 
 void OpenGLFrameBuffer::WaitForCommands(bool finish)
 {
+	if (mSwapPending) FinishSwap();
 	glFinish();
 }
 
@@ -357,6 +409,18 @@ void OpenGLFrameBuffer::WaitForCommands(bool finish)
 
 void OpenGLFrameBuffer::BeginFrame()
 {
+#ifdef __SWITCH__
+	nx_heartbeat++;
+	// GL driver on its own core (launcher option): started only once the game
+	// has been running a level for a second, never during startup/loading
+	if (nx_levelframes > 35 && !NX_GLThreadEnabled()) NX_GLThreadStart();
+#endif
+	if (mSwapPending)
+	{
+		NXPERF_SCOPE(frameend_ms, nullptr);
+		FinishSwap();
+	}
+	AsyncTex_NewFrame();
 	SetViewportRects(nullptr);
 	mViewpoints->Clear();
 	if (GLRenderer != nullptr)
@@ -371,6 +435,7 @@ void OpenGLFrameBuffer::BeginFrame()
 
 TArray<uint8_t> OpenGLFrameBuffer::GetScreenshotBuffer(int &pitch, ESSType &color_type, float &gamma)
 {
+	if (mSwapPending) FinishSwap();
 	const auto &viewport = mOutputLetterbox;
 
 	// Grab what is in the back buffer.
@@ -425,8 +490,11 @@ void OpenGLFrameBuffer::Draw2D()
 {
 	if (GLRenderer != nullptr)
 	{
+		NXPERF_SCOPE(draw2d_ms, nullptr);
 		GLRenderer->mBuffers->BindCurrentFB();
+		AsyncTex_Set2D(true);
 		::Draw2D(twod, gl_RenderState);
+		AsyncTex_Set2D(false);
 	}
 }
 
@@ -448,6 +516,7 @@ void OpenGLFrameBuffer::PostProcessScene(bool swscene, int fixedcm, float flash,
 
 FTexture *OpenGLFrameBuffer::WipeStartScreen()
 {
+	if (mSwapPending) FinishSwap();
 	const auto &viewport = screen->mScreenViewport;
 
 	auto tex = new FWrapperTexture(viewport.width, viewport.height, 1);
@@ -470,6 +539,7 @@ FTexture *OpenGLFrameBuffer::WipeStartScreen()
 
 FTexture *OpenGLFrameBuffer::WipeEndScreen()
 {
+	if (mSwapPending) FinishSwap();
 	GLRenderer->Flush();
 	const auto &viewport = screen->mScreenViewport;
 	auto tex = new FWrapperTexture(viewport.width, viewport.height, 1);
@@ -483,5 +553,16 @@ FTexture *OpenGLFrameBuffer::WipeEndScreen()
 
 bool OpenGLFrameBuffer::HasNVidiaVRAMExt() { return gles.nv_vram_ext; }
 bool OpenGLFrameBuffer::HasATIVRAMExt() { return gles.ati_vram_ext; }
+
+//==========================================================================
+//
+// Compiles shader variants that were used in earlier sessions (Switch)
+//
+//==========================================================================
+
+bool OpenGLFrameBuffer::CompileNextShader()
+{
+	return GLRenderer->mShaderManager->PrecompileNextVariant();
+}
 
 }

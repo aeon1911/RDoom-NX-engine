@@ -30,6 +30,7 @@
 #include "d_eventbase.h"
 #include "d_main.h"
 #include "d_net.h"
+#include "nx_perf.h"
 #include "d_netinf.h"
 #include "events.h"
 #include "g_game.h"
@@ -2189,7 +2190,10 @@ static void CalculateNetStabilityBuffer(int diff)
 //
 void TryRunTics()
 {
-	GC::CheckGC();
+	{
+		NXPERF_SCOPE(gc_ms, nullptr);
+		GC::CheckGC();
+	}
 
 	if (ToggleFullscreen)
 	{
@@ -2205,7 +2209,10 @@ void TryRunTics()
 
 	// Get the full number of tics the client can run.
 	if (doWait)
+	{
+		NXPERF_SCOPE(wait_ms, nullptr);
 		EnterTic = I_WaitForTic(LastEnterTic);
+	}
 	else
 		EnterTic = I_GetTime();
 
@@ -2218,7 +2225,10 @@ void TryRunTics()
 	// needed for singleplayer! But is instead handled entirely through local
 	// buffers. This has a limit of one seconds worth of commands that can be
 	// generated in advanced from the last time the game updated.
-	NetUpdate(totalTics);
+	{
+		NXPERF_SCOPE(net_ms, nullptr);
+		NetUpdate(totalTics);
+	}
 
 	LastEnterTic = EnterTic;
 

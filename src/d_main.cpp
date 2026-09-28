@@ -105,6 +105,10 @@
 #include "st_start.h"
 #include "st_stuff.h"
 #include "startscreen.h"
+#include "nx_perf.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/nx_loadscreen.h"
+#endif
 #include "swrenderer/r_swcolormaps.h"
 #include "teaminfo.h"
 #include "texturemanager.h"
@@ -1094,7 +1098,10 @@ static void End2DAndUpdate()
 {
 	twod->End();
 	CheckBench();
-	screen->Update();
+	{
+		NXPERF_SCOPE(update_ms, nullptr);
+		screen->Update();
+	}
 	twod->OnFrameDone();
 }
 
@@ -1237,6 +1244,8 @@ STAT_OFF(rendergraph_center)
 //
 //==========================================================================
 
+int nx_levelframes = 0;
+
 void D_Display ()
 {
 	FTexture *wipestart = nullptr;
@@ -1347,6 +1356,8 @@ void D_Display ()
 	screen->FrameTime = I_msTimeFS();
 	TexAnim.UpdateAnimations(screen->FrameTime);
 	R_UpdateSky(I_GetTimeFrac());
+	// Switch: frames drawn inside a running level (the GL driver thread starts only there)
+	nx_levelframes = (gamestate == GS_LEVEL && !wipestart) ? nx_levelframes + 1 : 0;
 	screen->BeginFrame();
 	twod->ClearClipRect();
 	if ((gamestate == GS_LEVEL || gamestate == GS_TITLELEVEL) && gametic != 0)
@@ -1355,14 +1366,18 @@ void D_Display ()
 		//E_RenderFrame();
 		//
 
-		D_Render([&]()
 		{
-			viewsec = RenderView(&players[consoleplayer]);
-		}, true);
+			NXPERF_SCOPE(scene_ms, nullptr);
+			D_Render([&]()
+			{
+				viewsec = RenderView(&players[consoleplayer]);
+			}, true);
+		}
 
 		twod->Begin(screen->GetWidth(), screen->GetHeight());
 		if (!hud_toggled)
 		{
+			NXPERF_SCOPE(hud_ms, nullptr);
 			V_DrawBlend(viewsec);
 			if (automapactive)
 			{
@@ -1593,10 +1608,20 @@ void D_DoomLoop ()
 
 			TryRunTics (); // will run at least one tic
 			// Update display, next frame, with current state.
-			I_StartTic ();
-			D_ProcessEvents();
-			D_Display ();
-			S_UpdateMusic();
+			{
+				NXPERF_SCOPE(input_ms, nullptr);
+				I_StartTic ();
+				D_ProcessEvents();
+			}
+			{
+				NXPERF_SCOPE(display_ms, nullptr);
+				D_Display ();
+			}
+			{
+				NXPERF_SCOPE(music_ms, nullptr);
+				S_UpdateMusic();
+			}
+			NXPerf_EndFrame();
 
 			if (gameloop_abort)
 			{
@@ -3655,6 +3680,23 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	D_GrabCVarDefaults(); //parse DEFCVARS
 	InitPalette();
 
+#ifdef __SWITCH__
+	// The launcher's performance presets pass these with +set, but the sound
+	// system only reads them when it starts, which is before +set commands
+	// run - apply them right away instead.
+	for (int i = 1; i + 2 < Args->NumArgs(); i++)
+	{
+		if (stricmp(Args->GetArg(i), "+set")) continue;
+		const char *name = Args->GetArg(i + 1);
+		if (stricmp(name, "snd_channels") && stricmp(name, "snd_efx") && stricmp(name, "snd_samplerate")) continue;
+		FBaseCVar *var = FindCVar(name, nullptr);
+		if (var == nullptr) continue;
+		UCVarValue val;
+		val.String = Args->GetArg(i + 2);
+		var->SetGenericRep(val, CVAR_String);
+	}
+#endif
+
 	if (!batchrun) Printf("S_Init: Setting up sound.\n");
 	S_Init();
 
@@ -3975,7 +4017,31 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 		S_Sound(CHAN_BODY, CHANF_UI|(haptics_do_menus?CHANF_RUMBLE:CHANF_NORUMBLE), "misc/startupdone", 1, ATTN_NONE);
 		if (!batchrun) Printf ("Init complete.\n");
+		{
+			uint64_t bchits, bcmisses, bcbytes;
+			FileSys::GetBlockCacheStats(bchits, bcmisses, bcbytes);
+			if (bcmisses > 0) Printf("File cache: %llu hits, %llu misses, %llu MB read\n", (unsigned long long)bchits, (unsigned long long)bcmisses, (unsigned long long)(bcbytes >> 20));
+			FileSys::SetBlockCacheMode(false);
+		}
+#ifdef __SWITCH__
+		NXLS_SetBoost(false);
+#endif
 
+#ifdef __SWITCH__
+		// Compile the shader variants that earlier sessions needed while the start
+		// screen is still up, so they don't cause hitches in the middle of the game.
+		{
+			uint64_t lastRender = I_msTime();
+			while (!screen->CompileNextShader())
+			{
+				if (StartScreen && I_msTime() - lastRender > 100)
+				{
+					StartScreen->Render(true);
+					lastRender = I_msTime();
+				}
+			}
+		}
+#endif
 		StartWindow->Progress(max_progress);
 		if (StartScreen)
 		{

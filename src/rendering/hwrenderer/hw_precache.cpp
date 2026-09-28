@@ -86,8 +86,16 @@ static void PrecacheSprite(FGameTexture *tex, SpriteHits &hits)
 //
 //==========================================================================
 
+void GLES_AsyncTexFlush();
+void NXPrefetch_NewLevel();
+void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent);
+
 void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitlist)
 {
+	// nothing may be decoding textures in the background while precaching
+	GLES_AsyncTexFlush();
+	NXPrefetch_NewLevel();
+
 	TMap<FTexture*, bool> allTextures;
 	TArray<FTexture*> layers;
 
@@ -322,4 +330,11 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 	delete[] spritehitlist;
 	delete[] spritelist;
 	delete[] modellist;
+
+	// Switch port: decode the sprites of everything in the level in the background
+	{
+		TMap<PClassActor*, bool>::Iterator pit(actorhitlist);
+		TMap<PClassActor*, bool>::Pair *ppair;
+		while (pit.NextPair(ppair)) NXPrefetch_Class(ppair->Key, 320, false);
+	}
 }

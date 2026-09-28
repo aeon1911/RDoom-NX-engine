@@ -21,6 +21,7 @@
 **
 */
 
+#include "nx_fxthin.h"
 #include "dthinker.h"
 #include "printf.h"
 #include "stats.h"
@@ -38,6 +39,8 @@
 #include "r_utility.h"
 
 #include "p_visualthinker.h"
+#include "nx_perf.h"
+#include <algorithm>
 
 static int ThinkCount, ClientSideThinkCount;
 static cycle_t ThinkCycles, ClientSideThinkCycles;
@@ -90,9 +93,41 @@ void FThinkerCollection::Link(DThinker *thinker, int statnum)
 //
 //==========================================================================
 
+// Switch port: once per second one tic's thinkers are timed per actor class
+// and summed up for perf.log, to show which parts of a mod cost the most.
+struct NXClassStat { double ms = 0; int calls = 0; };
+static TMap<FName, NXClassStat> NXClassProfile;
+static int NXProfiledTics = 0;
+
+static void NXThinkerSummary(FILE *f)
+{
+	if (NXProfiledTics == 0) return;
+	struct Row { const char *name; double ms; int calls; };
+	TArray<Row> rows;
+	double total = 0;
+	TMap<FName, NXClassStat>::Iterator it(NXClassProfile);
+	TMap<FName, NXClassStat>::Pair *pair;
+	while (it.NextPair(pair))
+	{
+		rows.Push({ pair->Key.GetChars(), pair->Value.ms, pair->Value.calls });
+		total += pair->Value.ms;
+	}
+	std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) { return a.ms > b.ms; });
+	fprintf(f, "#   thinkers by class (average per tic over %d sampled tics, total %.2f ms):\n", NXProfiledTics, total / NXProfiledTics);
+	for (unsigned i = 0; i < rows.Size() && i < 15; i++)
+	{
+		fprintf(f, "#     %7.3f ms  %5.1f  %s\n", rows[i].ms / NXProfiledTics, rows[i].calls / double(NXProfiledTics), rows[i].name);
+	}
+	NXClassProfile.Clear();
+	NXProfiledTics = 0;
+}
+
 void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 {
 	int i, count;
+	NXPERF_SCOPE(think_ms, nullptr);
+	if (NXPerf_SummaryHook == nullptr) NXPerf_SummaryHook = NXThinkerSummary;
+	bool nxprofile = !profilethinkers && NXPerf_ProfileThisTic();
 
 	ThinkCount = 0;
 	ThinkCycles.Reset();
@@ -102,7 +137,7 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 
 	ThinkCycles.Clock();
 
-	if (!profilethinkers)
+	if (!profilethinkers && !nxprofile)
 	{
 		// Tick every thinker left from last time
 		for (i = STAT_FIRST_THINKING; i <= MAX_STATNUM; ++i)
@@ -138,6 +173,22 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 				count += FreshThinkers[i].ProfileThinkers(&Thinkers[i], ThinkCount, Profiles);
 			}
 		} while (count != 0);
+
+		if (nxprofile)
+		{
+			auto nit = TMap<FName, ProfileInfo>::Iterator(Profiles);
+			TMap<FName, ProfileInfo>::Pair *npair;
+			while (nit.NextPair(npair))
+			{
+				auto &st = NXClassProfile[npair->Key];
+				st.ms += npair->Value.timer.TimeMS();
+				st.calls += npair->Value.numcalls;
+			}
+			NXProfiledTics++;
+			nxperf.thinkers += ThinkCount;
+			ThinkCycles.Unclock();
+			return;
+		}
 
 		struct SortedProfileInfo
 		{
@@ -197,6 +248,7 @@ void FThinkerCollection::RunThinkers(FLevelLocals *Level)
 		profilethinkers = 0;
 	}
 
+	nxperf.thinkers += ThinkCount;
 	ThinkCycles.Unclock();
 }
 
@@ -825,6 +877,13 @@ int FThinkerList::TickThinkers(FThinkerList *dest, int& counter)
 		NextToThink = node->NextThinker;
 		if (node->ObjectFlags & OF_JustSpawned)
 		{
+			// Switch: purely visual effects over the budget go away before doing anything
+			if (NXFx_DropNewThinker(node))
+			{
+				node->Destroy();
+				node = NextToThink;
+				continue;
+			}
 			// Leave OF_JustSpawn set until after Tick() so the ticker can check it.
 			if (dest != nullptr)
 			{ // Move thinker from this list to the destination list
@@ -870,6 +929,13 @@ int FThinkerList::ProfileThinkers(FThinkerList *dest, int& counter, TMap<FName, 
 		NextToThink = node->NextThinker;
 		if (node->ObjectFlags & OF_JustSpawned)
 		{
+			// Switch: purely visual effects over the budget go away before doing anything
+			if (NXFx_DropNewThinker(node))
+			{
+				node->Destroy();
+				node = NextToThink;
+				continue;
+			}
 			// Leave OF_JustSpawn set until after Tick() so the ticker can check it.
 			if (dest != nullptr)
 			{ // Move thinker from this list to the destination list

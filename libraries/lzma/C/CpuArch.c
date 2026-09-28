@@ -757,8 +757,15 @@ BoolInt CPU_IsSupported_SHA1(void) { return APPLE_CRYPTO_SUPPORT_VAL; }
 BoolInt CPU_IsSupported_SHA2(void) { return APPLE_CRYPTO_SUPPORT_VAL; }
 BoolInt CPU_IsSupported_AES (void) { return APPLE_CRYPTO_SUPPORT_VAL; }
 
+#elif defined(__SWITCH__)
 
-#else // __APPLE__
+BoolInt CPU_IsSupported_NEON(void) { return 1; }
+BoolInt CPU_IsSupported_CRC32(void) { return 1; }
+BoolInt CPU_IsSupported_SHA1(void) { return 1; }
+BoolInt CPU_IsSupported_SHA2(void) { return 1; }
+BoolInt CPU_IsSupported_AES(void) { return 1; }
+
+#else // not __APPLE__ or __SWITCH__
 
 #include <sys/auxv.h>
 
