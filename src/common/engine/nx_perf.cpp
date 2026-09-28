@@ -37,7 +37,7 @@ void (*NXPerf_SummaryHook)(FILE *f) = nullptr;
 static struct
 {
 	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present;
-	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, fxskipped, spriteskips;
+	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips;
 } win;
 
 #ifdef __SWITCH__
@@ -64,9 +64,7 @@ static void WriteSettings(FILE *f)
 		"vid_vsync", "vid_maxfps", "cl_capfps", "vid_scalefactor", "nx_effect_cull", "nx_effect_minalpha", "r_actorspriteshadowdist", "vid_preferbackend", "gl_multithread", "r_dynlights", "gles_max_lights_per_surface",
 		"r_actorspriteshadow", "gl_texture_filter", "gl_texture_filter_anisotropic", "r_maxparticles", "cl_maxdecals",
 		"snd_channels", "snd_efx", "snd_samplerate", "gles_async_textures", "snd_asyncload", "nx_workers",
-		"nashgore_maxgore", "nashgore_maxcasings", "nashgore_bloodmult", "nashgore_gibamount", "nashgore_corpseblood",
-		"pb_simplemonsterbehavior", "pb_performance_fire", "pb_tracerlight", "pb_cheapcasings", "pb_disable_decorations",
-		"pb_decorative_flame_barrels", "gl_sort_textures", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_fx_far", "nx_fx_thin", "nx_lateswap", "pb_gunsmoketype", nullptr };
+		"gl_sort_textures", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_lateswap", nullptr };
 	fprintf(f, "# settings:");
 	for (int i = 0; names[i]; i++)
 	{
@@ -124,7 +122,6 @@ void NXPerf_EndFrame()
 		win.glsync += nxperf.glsync_ms;
 		win.glfinish += nxperf.glfinish_ms;
 		win.glsyncs += nxperf.glsyncs;
-		win.fxskipped += nxperf.fxskipped;
 		win.spriteskips += nxperf.spriteskips;
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
@@ -171,9 +168,9 @@ void NXPerf_EndFrame()
 					(win.frame - win.tic - win.display - win.sndupd - win.gc - win.wait - win.net - win.input - win.music - win.client) / n);
 				fprintf(perfFile, "#   gl thread: %s | waits per frame: mid-frame %.1f ms (%.1f syncs), before swap %.1f ms\n",
 					NXGLThreadOn() ? "on" : "off", win.glsync / n, win.glsyncs / n, win.glfinish / n);
-				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | effects skipped/s %.0f | sprites waiting for their picture per frame %.1f\n",
+				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | sprites waiting for their picture per frame %.1f\n",
 					win.tics ? win.tic / win.tics : 0.0, win.tics ? win.thinkers / win.tics : 0, win.drawitems / frames, win.transitems / frames,
-					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.fxskipped * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
+					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
 			}
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);

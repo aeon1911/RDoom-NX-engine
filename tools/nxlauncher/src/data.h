@@ -27,7 +27,6 @@ typedef struct
 	int scale;	// render scale in percent
 	int fpslimit;	// 0 = VSync 60, 30 = VSync every other refresh (locked 30), 35/40 = frame rate cap
 	int glthread;	// GL driver on its own CPU core (Mesa glthread)
-	int simplefx;	// Brutality: plain (vanilla-like) shot effects
 	int showfps;
 	int skill;	// 0 = ask in game
 	int monsters;	// index into monster options
@@ -66,8 +65,6 @@ const char *data_iwad_title(const char *iwad);
 void data_iwad_path(const char *iwad, char *out, int outlen);
 double data_file_mb(const char *dir, const char *name);
 int data_find_mod(const Profile *p, const char *name);
-int data_is_pb(const Profile *p);
-
 int data_add_profile(const char *name, const char *iwad, const Profile *copyfrom);
 void data_delete_profile(int index);
 

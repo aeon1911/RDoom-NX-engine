@@ -873,7 +873,6 @@ set (PCH_SOURCES
 	playsim/p_spec.cpp
 	p_states.cpp
 	playsim/p_things.cpp
-	playsim/nx_fxthin.cpp
 	p_tick.cpp
 	playsim/p_user.cpp
 	rendering/r_utility.cpp

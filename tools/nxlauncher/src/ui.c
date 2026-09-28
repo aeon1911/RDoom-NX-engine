@@ -712,8 +712,6 @@ static void Mods_Draw(float dt)
 	}
 	DrawScrollbar(colx[1] + colw - 10, py + 74, visible * rowh - 6, avail_scroll, visible, n_avail);
 
-	if (data_is_pb(p) && p->preset == PRESET_QUALITY)
-		gfx_text(FONT_LIGHT, 16, 48, py + ph + 10, C_ACCENT2, "Project Brutality detectado: use o desempenho \"Equilibrado\" ou \"Switch (leve)\" na aba OPÇÕES.");
 }
 
 static void Mods_Update(void)
@@ -778,22 +776,10 @@ static void Mods_Update(void)
 		{
 			if (p->nmods >= MAX_MODS) { ui_message("Limite", "Este perfil já tem o máximo de mods."); return; }
 			FileEntry *f = &pwad_files[avail_list[avail_sel]];
-			int waspb = data_is_pb(p);
 			strncpy(p->mods[p->nmods++], f->name, MAX_PATH_LEN - 1);
 			order_sel = p->nmods - 1;
-			if (!waspb && data_is_pb(p) && p->preset == PRESET_BALANCED)
-			{
-				// Project Brutality needs the light preset to play smoothly on the Switch
-				p->preset = PRESET_SWITCH;
-				if (p->fpslimit == 0) p->fpslimit = 30;
-				data_save();
-				Toast("Brutality: desempenho ajustado para \"%s\"", preset_names[PRESET_SWITCH]);
-			}
-			else
-			{
-				data_save();
-				Toast("Adicionado: %s", f->name);
-			}
+			data_save();
+			Toast("Adicionado: %s", f->name);
 		}
 	}
 }
@@ -804,7 +790,7 @@ static void Mods_Update(void)
 
 enum Opts
 {
-	OPT_PRESET, OPT_SCALE, OPT_FPSLIMIT, OPT_SHOTFX, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
+	OPT_PRESET, OPT_SCALE, OPT_FPSLIMIT, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
 	OPT_LOADGAME, OPT_LOG, OPT_EXTRA, OPT_RENAME, OPT_IWAD, OPT_COUNT
 };
 
@@ -829,12 +815,6 @@ static void OptInfo(Profile *p, int o, const char **label, const char **desc, ch
 		if (p->fpslimit == 30) snprintf(value, vlen, "30 FPS travado");
 		else if (p->fpslimit > 0) snprintf(value, vlen, "%d FPS", p->fpslimit);
 		else snprintf(value, vlen, "Sem limite (VSync)");
-		break;
-	case OPT_SHOTFX:
-		*label = "Efeitos de tiro (Brutality)";
-		*desc = p->simplefx ? "Como no Doom original: sem impactos, faíscas, cápsulas e clarões extras. Mais leve (dano e sangue iguais)."
-			: "Todos os efeitos de tiro do Brutality (mais pesado nos tiroteios).";
-		snprintf(value, vlen, "%s", p->simplefx ? "Simples (vanilla)" : "Brutality");
 		break;
 	case OPT_GLTHREAD:
 		*label = "Driver de vídeo em outro núcleo";
@@ -959,7 +939,6 @@ static void Options_Update(void)
 			changed = 1;
 			break;
 		}
-		case OPT_SHOTFX: p->simplefx = !p->simplefx; changed = 1; break;
 		case OPT_GLTHREAD: p->glthread = !p->glthread; changed = 1; break;
 		case OPT_FPS: p->showfps = !p->showfps; changed = 1; break;
 		case OPT_LOADSCREEN: p->noloadscreen = !p->noloadscreen; changed = 1; break;
@@ -1151,7 +1130,7 @@ int ui_run(void)
 
 	if (plat_applet_mode())
 		ui_message("Modo applet (pouca RAM)",
-			"O launcher foi aberto pelo Álbum. Nesse modo só ~400 MB de RAM ficam livres, o que NÃO basta para Project Brutality, Lexicon ou WadFusion. Para ter a RAM completa, segure R ao abrir qualquer jogo e inicie o launcher pelo menu que aparecer.");
+			"O launcher foi aberto pelo Álbum. Nesse modo só ~400 MB de RAM ficam livres, o que não basta para mods grandes. Para ter a RAM completa, segure R ao abrir qualquer jogo e inicie o launcher pelo menu que aparecer.");
 
 	for (;;)
 	{

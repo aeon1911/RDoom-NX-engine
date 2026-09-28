@@ -70,7 +70,7 @@ namespace FileSys {
 //
 // On the Switch every fread that misses stdio's tiny buffer is an IPC
 // round trip to the FS sysmodule plus an SD card access. Opening big mods
-// (Project Brutality has 60000+ lumps) touches the header of nearly every
+// (a large gameplay mod has tens of thousands of lumps) touches the header of nearly every
 // lump in an order that has nothing to do with the physical file layout,
 // which resulted in several hundred thousand small random reads.
 // This cache reads archives in large aligned blocks and keeps them in an

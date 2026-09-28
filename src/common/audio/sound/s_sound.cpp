@@ -88,7 +88,7 @@ void SoundEngine::Init(TArray<uint8_t> &curve)
 // Background sound loading (Switch port)
 //
 // Decoding a sound (mostly Ogg Vorbis in big mods) takes several
-// milliseconds on the Switch's CPU, and Project Brutality plays dozens of
+// milliseconds on the Switch's CPU, and a large gameplay mod plays dozens of
 // different sounds when fighting. Sounds that are not loaded yet are now
 // decoded by a worker thread and start playing as soon as they are ready
 // (a few frames later) instead of freezing the game.

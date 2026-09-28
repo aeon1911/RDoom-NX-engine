@@ -25,7 +25,6 @@ struct NXPerfCounters
 	double glsync_ms = 0;	// game thread waiting for the GL driver thread in the middle of a frame
 	double glfinish_ms = 0;	// game thread waiting for the GL driver thread before the buffer swap
 	int glsyncs = 0;
-	int fxskipped = 0;		// effect actors skipped by nx_fx_thin
 	int spriteskips = 0;	// sprite draws skipped because the picture wasn't on the GPU yet
 	double present_ms = 0;	// copy of the finished frame to the window (waits for a free window buffer)
 	double draw2d_ms = 0;	// 2D drawing (HUD, menus, messages) - part of update_ms

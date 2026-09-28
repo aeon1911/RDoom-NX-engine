@@ -2,7 +2,7 @@
 // Background preparation of textures (Switch port).
 //
 // Reading and decoding a sprite from the mod's archive takes several
-// milliseconds on the Switch's CPU. Mods like Project Brutality have
+// milliseconds on the Switch's CPU. Large gameplay mods have
 // thousands of sprite frames, so every shot, explosion or new enemy used
 // to stall the game while dozens of new frames were decoded. Sprites and
 // HUD graphics are now decoded by worker threads; until a picture is ready

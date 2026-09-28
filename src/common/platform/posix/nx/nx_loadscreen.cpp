@@ -377,8 +377,8 @@ const char *const Tips[] =
 {
 	"Dica: na aba Mods do launcher, aperte A em um mod e use o direcional para mudar a ordem de carregamento.",
 	"Dica: a primeira abertura de um conjunto de mods é a mais lenta. Nas próximas, o tempo restante aparece aqui.",
-	"Dica: mods de mapas (ex.: Lexicon) vão antes dos mods de gameplay (ex.: Project Brutality) na ordem de carregamento.",
-	"Dica: o perfil de desempenho \"Switch\" no launcher reduz os efeitos mais pesados do Project Brutality.",
+	"Dica: mods de mapas vão antes dos mods de gameplay na ordem de carregamento.",
+	"Dica: o perfil \"Switch (leve)\" reduz luzes, partículas e efeitos distantes.",
 	"Dica: abra o launcher segurando R em um jogo (modo aplicativo) para ter a RAM completa do console.",
 	"Dica: cada perfil do launcher guarda seus próprios mods, ordem e opções.",
 };
@@ -962,13 +962,12 @@ void NXLS_OnPrint(const char *text)
 	}
 	else if (!strncmp(text, "S_Init", 6)) { SetMilestone(MS_SOUND); gDetail.clear(); }
 	else if (!strncmp(text, "Texman.Init", 11)) { SetMilestone(MS_TEXTURES); gDetail.clear(); }
-	else if (!strncmp(text, "LoadActors", 10)) { SetMilestone(MS_ACTORS); gDetail = "Isso é o que mais demora com mods grandes como o Project Brutality"; }
+	else if (!strncmp(text, "LoadActors", 10)) { SetMilestone(MS_ACTORS); gDetail = "Isso é o que mais demora com mods grandes"; }
 	else if (!strncmp(text, "script parsing took", 19)) { SetMilestone(MS_SCRIPTSDONE); gDetail.clear(); }
 	else if (!strncmp(text, "R_Init", 6)) { SetMilestone(MS_RINIT); gDetail.clear(); }
 	else if (!strncmp(text, "M_Init", 6)) { SetMilestone(MS_MENUS); gDetail.clear(); }
 	else if (!strncmp(text, "P_Init", 6)) { SetMilestone(MS_PLAYLOOP); gDetail.clear(); }
 	else if (!strncmp(text, "D_CheckNetGame", 14)) { SetMilestone(MS_NETGAME); gDetail.clear(); }
-	else if (gMilestone == MS_ACTORS && !strncmp(text, "PB_", 3)) { /* Project Brutality's own messages */ }
 	else if (!strncmp(text, "Execution could not continue", 28)) { /* fatal error follows */ }
 
 	if (gMilestone == MS_WINIT && gFiles.size() > 0 && gFiles[0].state == 0) gFiles[0].state = 1;
@@ -997,7 +996,7 @@ void NXLS_TestShot(const char *name)
 
 int main(int argc, char **argv)
 {
-	const char *args[] = { "uzdoom", "-iwad", "doom_fusion.ipk3", "-file", "lexicon-core-v1.0.pk3", "lexicon-base-v1.0.pk3", "Project_Brutality-master.pk3", "+logfile", "x.log" };
+	const char *args[] = { "uzdoom", "-iwad", "doom_fusion.ipk3", "-file", "lexicon-core-v1.0.pk3", "lexicon-base-v1.0.pk3", "gameplay.pk3", "+logfile", "x.log" };
 	NXLS_Start(9, (char **)args);
 	std::vector<uint32_t> buf(SW * SH);
 	auto shot = [&](const char *name) {

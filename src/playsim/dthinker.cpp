@@ -21,7 +21,6 @@
 **
 */
 
-#include "nx_fxthin.h"
 #include "dthinker.h"
 #include "printf.h"
 #include "stats.h"
@@ -877,13 +876,6 @@ int FThinkerList::TickThinkers(FThinkerList *dest, int& counter)
 		NextToThink = node->NextThinker;
 		if (node->ObjectFlags & OF_JustSpawned)
 		{
-			// Switch: purely visual effects over the budget go away before doing anything
-			if (NXFx_DropNewThinker(node))
-			{
-				node->Destroy();
-				node = NextToThink;
-				continue;
-			}
 			// Leave OF_JustSpawn set until after Tick() so the ticker can check it.
 			if (dest != nullptr)
 			{ // Move thinker from this list to the destination list
@@ -929,13 +921,6 @@ int FThinkerList::ProfileThinkers(FThinkerList *dest, int& counter, TMap<FName, 
 		NextToThink = node->NextThinker;
 		if (node->ObjectFlags & OF_JustSpawned)
 		{
-			// Switch: purely visual effects over the budget go away before doing anything
-			if (NXFx_DropNewThinker(node))
-			{
-				node->Destroy();
-				node = NextToThink;
-				continue;
-			}
 			// Leave OF_JustSpawn set until after Tick() so the ticker can check it.
 			if (dest != nullptr)
 			{ // Move thinker from this list to the destination list

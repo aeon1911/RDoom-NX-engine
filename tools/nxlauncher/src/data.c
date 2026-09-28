@@ -27,8 +27,8 @@ const char *const preset_names[PRESET_COUNT] = { "Qualidade", "Equilibrado", "Sw
 const char *const preset_desc[PRESET_COUNT] =
 {
 	"Tudo ligado, como no PC. Pode travar em cenas pesadas.",
-	"Luzes leves; no Brutality: metade do sangue/cápsulas e barris de fogo simples.",
-	"Sem luzes, efeitos mínimos, barris originais do Doom, monstros mais simples.",
+	"Luzes leves, menos partículas e sem reverberação.",
+	"Sem luzes dinâmicas, poucos efeitos distantes e som mais leve.",
 };
 const char *const monster_names[5] = { "Padrão", "Sem monstros", "Rápidos", "Renascem", "Rápidos e renascem" };
 
@@ -155,7 +155,6 @@ static void profile_defaults(Profile *p)
 	p->scale = 100;
 	p->fpslimit = 0;
 	p->glthread = 0;
-	p->simplefx = 1;
 }
 
 static Profile *find_profile(const char *name)
@@ -175,19 +174,6 @@ int data_find_mod(const Profile *p, const char *name)
 {
 	for (int i = 0; i < p->nmods; i++) if (!strcasecmp(p->mods[i], name)) return i;
 	return -1;
-}
-
-int data_is_pb(const Profile *p)
-{
-	for (int i = 0; i < p->nmods; i++)
-	{
-		char low[MAX_PATH_LEN];
-		int j;
-		for (j = 0; p->mods[i][j] && j < MAX_PATH_LEN - 1; j++) low[j] = (char)tolower((unsigned char)p->mods[i][j]);
-		low[j] = 0;
-		if (strstr(low, "brutal") || !strncmp(low, "pb_", 3) || !strncmp(low, "pb-", 3) || strstr(low, "project_b") || strstr(low, "projectb")) return 1;
-	}
-	return 0;
 }
 
 //==========================================================================
@@ -264,7 +250,6 @@ static void load_ini(void)
 		else if (!strcasecmp(key, "RenderScale")) p->scale = atoi(val);
 		else if (!strcasecmp(key, "FPSLimit")) p->fpslimit = atoi(val);
 		else if (!strcasecmp(key, "GLThread")) p->glthread = atoi(val);
-		else if (!strcasecmp(key, "SimpleShotFX")) p->simplefx = atoi(val);
 		else if (!strcasecmp(key, "ShowFPS")) p->showfps = atoi(val);
 		else if (!strcasecmp(key, "Skill")) p->skill = atoi(val);
 		else if (!strcasecmp(key, "Monsters"))
@@ -304,7 +289,6 @@ int data_save(void)
 		fprintf(f, "RenderScale = %d\n", p->scale);
 		fprintf(f, "FPSLimit = %d\n", p->fpslimit);
 		fprintf(f, "GLThread = %d\n", p->glthread);
-		fprintf(f, "SimpleShotFX = %d\n", p->simplefx);
 		fprintf(f, "ShowFPS = %d\n", p->showfps);
 		fprintf(f, "Skill = %d\n", p->skill);
 		fprintf(f, "MonsterMode = %d\n", p->monsters);
@@ -356,33 +340,11 @@ int data_init(void)
 	ini_version = 0;
 	load_ini();
 
-	// nx3.2: Project Brutality profiles move to the lightest preset once
-	// (the heavy fights were far too slow with the others)
-	if (ini_version < 3)
-	{
-		for (int i = 0; i < nprofiles; i++)
-			if (data_is_pb(&profiles[i])) profiles[i].preset = PRESET_SWITCH;
-	}
-	// nx3.3: Brutality profiles get a steady 30 FPS cap once
-	if (ini_version < 4)
-	{
-		for (int i = 0; i < nprofiles; i++)
-			if (data_is_pb(&profiles[i])) profiles[i].fpslimit = 30;
-	}
-	// nx3.5: GL driver thread on for everybody, Brutality locked at 30 (VSync every other refresh)
-	if (ini_version < 5)
-	{
-		for (int i = 0; i < nprofiles; i++)
-		{
-			profiles[i].glthread = 1;
-			if (data_is_pb(&profiles[i])) profiles[i].fpslimit = 30;
-		}
-	}
-	// nx3.7: plain shot effects for everybody (only used with Brutality)
+	// The GL driver thread froze the game on the console when it turned on
+	// during startup. Force it off once for profiles saved by older builds.
 	if (ini_version < 6)
 	{
-		// the GL driver thread froze the game on the console (nx3.6): off until it's proven
-		for (int i = 0; i < nprofiles; i++) { profiles[i].simplefx = 1; profiles[i].glthread = 0; }
+		for (int i = 0; i < nprofiles; i++) profiles[i].glthread = 0;
 	}
 
 	// drop entries without a game file (keep custom ones so that nothing gets lost)
@@ -393,7 +355,6 @@ int data_init(void)
 		if (profiles[i].scale < 50 || profiles[i].scale > 100) profiles[i].scale = 100;
 		if (profiles[i].fpslimit != 30 && profiles[i].fpslimit != 35 && profiles[i].fpslimit != 40) profiles[i].fpslimit = 0;
 		profiles[i].glthread = profiles[i].glthread ? 1 : 0;
-		profiles[i].simplefx = profiles[i].simplefx ? 1 : 0;
 		if (profiles[i].monsters < 0 || profiles[i].monsters > 4) profiles[i].monsters = 0;
 		if (profiles[i].skill < 0 || profiles[i].skill > 5) profiles[i].skill = 0;
 	}
@@ -461,42 +422,15 @@ static const char *const engine_presets[PRESET_COUNT] =
 {
 	"+set r_dynlights 1 +set gles_max_lights_per_surface 16 +set r_maxparticles 4000 +set cl_maxdecals 1024 +set gl_light_particles 1 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 1500 +set gl_texture_filter_anisotropic 8 +set gl_sort_textures 0 +set snd_channels 128 +set snd_efx 1 "
-	"+set nx_effect_cull 0 +set nx_effect_minalpha 0 +set nx_fx_thin none +set nx_fx_far 0 ",
+	"+set nx_effect_cull 0 +set nx_effect_minalpha 0 ",
 
 	"+set r_dynlights 1 +set gles_max_lights_per_surface 6 +set r_maxparticles 600 +set cl_maxdecals 200 +set gl_light_particles 0 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 800 +set gl_texture_filter_anisotropic 4 +set gl_sort_textures 1 +set snd_channels 64 +set snd_efx 0 "
-	"+set nx_effect_cull 4000 +set nx_effect_minalpha 0.06 +set nx_fx_thin none +set nx_fx_far 0 ",
+	"+set nx_effect_cull 4000 +set nx_effect_minalpha 0.06 ",
 
 	"+set r_dynlights 0 +set gles_max_lights_per_surface 2 +set r_maxparticles 150 +set cl_maxdecals 64 +set gl_light_particles 0 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 600 +set gl_texture_filter_anisotropic 2 +set gl_sort_textures 1 +set snd_channels 40 +set snd_efx 0 "
-	"+set nx_effect_cull 2500 +set nx_effect_minalpha 0.12 +set nx_fx_thin none +set nx_fx_far 0 ",
-};
-
-// Project Brutality's own options (only passed when PB is in the mod list).
-// Most of PB's cost in fights is the number of effect actors (blood, gibs,
-// casings, smoke) that all move and get drawn every tic.
-static const char *const pb_presets[PRESET_COUNT] =
-{
-	"+set PB_tracerlight 1 +set pb_performance_fire 0 +set pb_simplemonsterbehavior 0 +set pb_disable_decorations 0 +set pb_decorative_flame_barrels 0 "
-	"+set nashgore_maxgore 1024 +set nashgore_maxcasings 50 +set nashgore_bloodmult 1.0 +set nashgore_gibamount 255 "
-	"+set nashgore_footprints 1 +set nashgore_bloodspurt 1 +set nashgore_corpseblood 1 +set nashgore_splat 1 "
-	"+set pb_hidebloodmist 0 +set pb_cheapcasings 1 +set pb_dasheffect 1 +set pb_lowflashesmode 0 +set pb_showblooddrops 1 +set pb_showglasscracks 1 "
-	"+set pb_gunsmoketype 0 ",
-
-	// weapon smoke off (PB's own "Gun Smoke Type: Off" plus the barrel heat,
-	// casing and enemy muzzle smoke that option doesn't cover); nothing else is thinned
-	"+set PB_tracerlight 0 +set pb_performance_fire 1 +set pb_simplemonsterbehavior 0 +set pb_disable_decorations 0 +set pb_decorative_flame_barrels 1 "
-	"+set nashgore_maxgore 128 +set nashgore_maxcasings 16 +set nashgore_bloodmult 0.6 +set nashgore_gibamount 128 "
-	"+set nashgore_footprints 0 +set nashgore_bloodspurt 1 +set nashgore_corpseblood 0 +set nashgore_splat 1 "
-	"+set pb_hidebloodmist 1 +set pb_cheapcasings 1 +set pb_dasheffect 1 +set pb_lowflashesmode 0 +set pb_showblooddrops 1 +set pb_showglasscracks 1 "
-	"+set pb_gunsmoketype 2 ",
-
-	"+set PB_tracerlight 0 +set pb_performance_fire 1 +set pb_simplemonsterbehavior 1 +set pb_disable_decorations 1 +set pb_decorative_flame_barrels 1 "
-	"+set nashgore_maxgore 40 +set nashgore_maxcasings 6 +set nashgore_bloodmult 0.3 +set nashgore_gibamount 48 "
-	"+set nashgore_footprints 0 +set nashgore_bloodspurt 0 +set nashgore_corpseblood 0 +set nashgore_splat 0 "
-	"+set pb_hidebloodmist 1 +set pb_cheapcasings 1 +set pb_dasheffect 0 +set pb_lowflashesmode 1 +set pb_showblooddrops 0 +set pb_showglasscracks 0 "
-	"+set pb_huddynamics 0 +set pb_execution_box 0 "
-	"+set pb_gunsmoketype 2 ",
+	"+set nx_effect_cull 2500 +set nx_effect_minalpha 0.12 ",
 };
 
 void data_launch(int index)
@@ -550,23 +484,6 @@ void data_launch(int index)
 	if (p->noloadscreen) arg("-nxnoload ");
 
 	arg("%s", engine_presets[p->preset]);
-	if (data_is_pb(p))
-	{
-		arg("%s", pb_presets[p->preset]);
-		// purely visual effect actors that are dropped (nx_fx_thin, class = share kept)
-		char fx[1024] = "";
-		if (p->preset != PRESET_QUALITY)
-			// weapon smoke: barrel heat, casing and enemy muzzle smoke (PB's "Gun Smoke Type: Off" misses those)
-			strcat(fx, "PB_GunFireSmoke=0,GunFireSmoke=0,NewCasingSmoke=0,");
-		if (p->simplefx)
-			// shot effects like in the original game: no detailed bullet impacts, debris, sparks,
-			// ricochets, ejected casings or extra muzzle flashes (bullets, damage and blood stay)
-			strcat(fx, "PB_BaseBulletImpact=0,PB_AnimatedSmokeThinker=0,SparkX=0,HitSpark=0,RicoChet=0,"
-				"PB_CasingBase=0,RifleCaseSpawn=0,Mp40CaseSpawn=0,SMGCasingSpawner=0,MastermindCaseSpawn=0,ShotgunWad=0,"
-				"OrangeLensFlareAlt=0,PB_MuzzleSpark=0,MarineMuzzle1=0,");
-		size_t n = strlen(fx);
-		if (n > 0) { fx[n - 1] = 0; arg("+set nx_fx_thin %s ", fx); }
-	}
 	arg("+set vid_scalefactor %d.%02d ", p->scale / 100, p->scale % 100);
 	// 30 = VSync on every other refresh of the 60 Hz screen: a real lock with
 	// even frame pacing. 35/40 are plain caps without VSync.
