@@ -8,7 +8,7 @@
 #define TMPDIR BASEDIR "/temp"
 
 #undef VERSION
-#define VERSION "uz5.0.3-nx3.7"
+#define VERSION "uz5.0.3-general"
 
 enum Button
 {
