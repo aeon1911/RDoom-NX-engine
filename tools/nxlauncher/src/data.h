@@ -27,6 +27,7 @@ typedef struct
 	int scale;	// render scale in percent
 	int fpslimit;	// 0 = VSync 60, 30 = VSync every other refresh (locked 30), 35/40 = frame rate cap
 	int glthread;	// GL driver on its own CPU core (Mesa glthread)
+	int stabilizer;	// frame rate stabilizer (trims visual detail while frames are late)
 	int showfps;
 	int skill;	// 0 = ask in game
 	int monsters;	// index into monster options

@@ -27,7 +27,7 @@ const char *const preset_names[PRESET_COUNT] = { "Qualidade", "Equilibrado", "Sw
 const char *const preset_desc[PRESET_COUNT] =
 {
 	"Tudo ligado, como no PC. Pode travar em cenas pesadas.",
-	"Luzes leves, menos partículas e sem reverberação.",
+	"Luzes leves (as 16 mais próximas), menos partículas e sem reverberação.",
 	"Sem luzes dinâmicas, poucos efeitos distantes e som mais leve.",
 };
 const char *const monster_names[5] = { "Padrão", "Sem monstros", "Rápidos", "Renascem", "Rápidos e renascem" };
@@ -153,8 +153,9 @@ static void profile_defaults(Profile *p)
 	memset(p, 0, sizeof(*p));
 	p->preset = PRESET_BALANCED;
 	p->scale = 100;
-	p->fpslimit = 0;
+	p->fpslimit = 30;
 	p->glthread = 0;
+	p->stabilizer = 1;
 }
 
 static Profile *find_profile(const char *name)
@@ -250,6 +251,7 @@ static void load_ini(void)
 		else if (!strcasecmp(key, "RenderScale")) p->scale = atoi(val);
 		else if (!strcasecmp(key, "FPSLimit")) p->fpslimit = atoi(val);
 		else if (!strcasecmp(key, "GLThread")) p->glthread = atoi(val);
+		else if (!strcasecmp(key, "Stabilizer")) p->stabilizer = atoi(val);
 		else if (!strcasecmp(key, "ShowFPS")) p->showfps = atoi(val);
 		else if (!strcasecmp(key, "Skill")) p->skill = atoi(val);
 		else if (!strcasecmp(key, "Monsters"))
@@ -274,7 +276,7 @@ int data_save(void)
 	mkdir(BASEDIR, 0755);
 	FILE *f = fopen(BASEDIR "/launcher.ini.tmp", "w");
 	if (!f) return -1;
-	fprintf(f, "; UZDoom Switch launcher profiles\n\n[@Launcher]\nVersion = 6\n");
+	fprintf(f, "; UZDoom Switch launcher profiles\n\n[@Launcher]\nVersion = 7\n");
 	if (cur_profile >= 0 && cur_profile < nprofiles) fprintf(f, "LastProfile = %s\n", profiles[cur_profile].name);
 	fprintf(f, "PlayCounter = %d\n\n", play_counter);
 	for (int i = 0; i < nprofiles; i++)
@@ -289,6 +291,7 @@ int data_save(void)
 		fprintf(f, "RenderScale = %d\n", p->scale);
 		fprintf(f, "FPSLimit = %d\n", p->fpslimit);
 		fprintf(f, "GLThread = %d\n", p->glthread);
+		fprintf(f, "Stabilizer = %d\n", p->stabilizer);
 		fprintf(f, "ShowFPS = %d\n", p->showfps);
 		fprintf(f, "Skill = %d\n", p->skill);
 		fprintf(f, "MonsterMode = %d\n", p->monsters);
@@ -346,6 +349,16 @@ int data_init(void)
 	{
 		for (int i = 0; i < nprofiles; i++) profiles[i].glthread = 0;
 	}
+	// uz5.0.3-nx4.1: frame rate stabilizer on and a steady 30 FPS for everybody once
+	// (the smoothest setting on the Switch; both can be changed in OPTIONS)
+	if (ini_version < 7)
+	{
+		for (int i = 0; i < nprofiles; i++)
+		{
+			profiles[i].stabilizer = 1;
+			if (profiles[i].fpslimit == 0) profiles[i].fpslimit = 30;
+		}
+	}
 
 	// drop entries without a game file (keep custom ones so that nothing gets lost)
 	for (int i = 0; i < nprofiles; i++)
@@ -355,6 +368,7 @@ int data_init(void)
 		if (profiles[i].scale < 50 || profiles[i].scale > 100) profiles[i].scale = 100;
 		if (profiles[i].fpslimit != 30 && profiles[i].fpslimit != 35 && profiles[i].fpslimit != 40) profiles[i].fpslimit = 0;
 		profiles[i].glthread = profiles[i].glthread ? 1 : 0;
+		profiles[i].stabilizer = profiles[i].stabilizer ? 1 : 0;
 		if (profiles[i].monsters < 0 || profiles[i].monsters > 4) profiles[i].monsters = 0;
 		if (profiles[i].skill < 0 || profiles[i].skill > 5) profiles[i].skill = 0;
 	}
@@ -422,15 +436,15 @@ static const char *const engine_presets[PRESET_COUNT] =
 {
 	"+set r_dynlights 1 +set gles_max_lights_per_surface 16 +set r_maxparticles 4000 +set cl_maxdecals 1024 +set gl_light_particles 1 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 1500 +set gl_texture_filter_anisotropic 8 +set gl_sort_textures 0 +set snd_channels 128 +set snd_efx 1 "
-	"+set nx_effect_cull 0 +set nx_effect_minalpha 0 ",
+	"+set nx_effect_cull 0 +set nx_effect_minalpha 0 +set nx_dynlight_max 0 +set nx_dynlight_dist 0 ",
 
 	"+set r_dynlights 1 +set gles_max_lights_per_surface 6 +set r_maxparticles 600 +set cl_maxdecals 200 +set gl_light_particles 0 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 800 +set gl_texture_filter_anisotropic 4 +set gl_sort_textures 1 +set snd_channels 64 +set snd_efx 0 "
-	"+set nx_effect_cull 4000 +set nx_effect_minalpha 0.06 ",
+	"+set nx_effect_cull 4000 +set nx_effect_minalpha 0.06 +set nx_dynlight_max 16 +set nx_dynlight_dist 2500 ",
 
 	"+set r_dynlights 0 +set gles_max_lights_per_surface 2 +set r_maxparticles 150 +set cl_maxdecals 64 +set gl_light_particles 0 "
 	"+set r_actorspriteshadow 1 +set r_actorspriteshadowdist 600 +set gl_texture_filter_anisotropic 2 +set gl_sort_textures 1 +set snd_channels 40 +set snd_efx 0 "
-	"+set nx_effect_cull 2500 +set nx_effect_minalpha 0.12 ",
+	"+set nx_effect_cull 2500 +set nx_effect_minalpha 0.12 +set nx_dynlight_max 8 +set nx_dynlight_dist 1500 ",
 };
 
 void data_launch(int index)
@@ -492,6 +506,8 @@ void data_launch(int index)
 	else if (p->fpslimit > 0) arg("+set vid_vsync 0 +set nx_swapinterval 1 +set cl_capfps 0 +set vid_maxfps %d ", p->fpslimit);
 	else arg("+set vid_vsync 1 +set nx_swapinterval 1 +set cl_capfps 0 +set vid_maxfps 0 ");
 	arg("+set nx_glthread %d +set r_ticstability 0 ", p->glthread ? 1 : 0);
+	// frame rate stabilizer: aims at the FPS limit (30 when there is none)
+	arg("+set nx_stabilizer %d ", p->stabilizer ? (p->fpslimit > 0 ? p->fpslimit : 30) : 0);
 	arg("+set vid_fps %d ", p->showfps ? 1 : 0);
 	if (p->warp[0]) arg("+map %s ", p->warp);
 	if (p->pclass[0]) arg("+playerclass \"%s\" ", p->pclass);

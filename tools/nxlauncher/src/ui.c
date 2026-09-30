@@ -790,7 +790,7 @@ static void Mods_Update(void)
 
 enum Opts
 {
-	OPT_PRESET, OPT_SCALE, OPT_FPSLIMIT, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
+	OPT_PRESET, OPT_SCALE, OPT_FPSLIMIT, OPT_STABILIZER, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
 	OPT_LOADGAME, OPT_LOG, OPT_EXTRA, OPT_RENAME, OPT_IWAD, OPT_COUNT
 };
 
@@ -815,6 +815,12 @@ static void OptInfo(Profile *p, int o, const char **label, const char **desc, ch
 		if (p->fpslimit == 30) snprintf(value, vlen, "30 FPS travado");
 		else if (p->fpslimit > 0) snprintf(value, vlen, "%d FPS", p->fpslimit);
 		else snprintf(value, vlen, "Sem limite (VSync)");
+		break;
+	case OPT_STABILIZER:
+		*label = "Estabilizar FPS";
+		*desc = p->stabilizer ? "Em cenas pesadas (muito fogo, tochas, efeitos) reduz luzes e efeitos distantes para não cair do limite de FPS. O jogo em si não muda."
+			: "Desligado: detalhes sempre iguais; o FPS cai nas cenas pesadas.";
+		snprintf(value, vlen, "%s", p->stabilizer ? "Automático" : "Desligado");
 		break;
 	case OPT_GLTHREAD:
 		*label = "Driver de vídeo em outro núcleo";
@@ -939,6 +945,7 @@ static void Options_Update(void)
 			changed = 1;
 			break;
 		}
+		case OPT_STABILIZER: p->stabilizer = !p->stabilizer; changed = 1; break;
 		case OPT_GLTHREAD: p->glthread = !p->glthread; changed = 1; break;
 		case OPT_FPS: p->showfps = !p->showfps; changed = 1; break;
 		case OPT_LOADSCREEN: p->noloadscreen = !p->noloadscreen; changed = 1; break;
