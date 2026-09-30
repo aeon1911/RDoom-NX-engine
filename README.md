@@ -1,96 +1,61 @@
-<div align="center">
+# UZDoom para Nintendo Switch
 
-[ <img src="branding/misc/logo-bg.svg" alt="UZDoom Icon" style="height: 8em; width: 100%" /> ][repo]
+Port do [UZDoom](https://github.com/UZDoom/UZDoom) 5.0.3 para o Nintendo Switch
+desbloqueado (Atmosphère / Homebrew Menu), com launcher próprio. Roda qualquer mod
+que rode no UZDoom 5.0.3 do PC: Brutal Doom, Project Brutality, Lexicon,
+Trailblazer, Samsara, WadFusion...
 
-</div>
+Port, launcher e otimizações para Switch: **Renan** (Telegram @aeon1911).
+Baseado no trabalho de fgsfds (port de GZDoom para Switch e launcher original),
+Thorhax (GZDoom-NX-2026), da equipe UZDoom/GZDoom/ZDoom e do devkitPro.
 
-## Welcome to UZDoom!
+## O que é diferente do UZDoom do PC
 
-[![Continuous Integration][badge_git]][status_git]
-[![Engine Translation status][badge_trans]][status_trans]
-[![Game Translation status][badge_trans_games]][status_trans_games]
+Os arquivos do motor (`uzdoom.pk3`, `game_support.pk3`, `brightmaps.pk3`,
+`lights.pk3`, `game_widescreen_gfx.pk3`) são exatamente os do UZDoom 5.0.3
+oficial: nenhum mod é alterado. As mudanças são só para o Switch:
 
-**UZDoom** is a modern, feature-rich source port for the classic game **DOOM**.
+- cache de leitura do cartão SD (abertura de mods grandes muito mais rápida);
+- imagens e sons preparados em outro núcleo, prefetch de sprites e mipmaps feitos
+  na CPU (sem travadas quando aparecem sprites novos);
+- shaders pré-preparados, tela de carregamento com tempo restante;
+- 30 FPS travado de verdade (VSync a cada 2 atualizações) e estabilizador de FPS
+  (reduz só detalhes visuais - luzes dinâmicas distantes, efeitos longe - quando
+  uma cena fica pesada demais);
+- luzes dinâmicas com orçamento (as mais próximas iluminam, as outras somem com fade);
+- threads do jogo, do áudio e dos workers distribuídos nos 3 núcleos livres;
+- `perf.log`, `crash.log` e `hang.log` no cartão para diagnóstico;
+- nenhuma mudança de clock (CPU/GPU sempre nos valores normais do console).
 
-A continuation of [ZDoom][zdoom] and [GZDoom][gzdoom], UZDoom enhances the original DOOM engine, providing advanced features like:
+## Instalação
 
-* High-Resolution Graphics
-* Dynamic lighting
-* 3D Floors
-* Extensive Modding Support
-* Support for modern OpenGL and Vulkan renderers
+Veja [`nx/LEIA-ME.txt`](nx/LEIA-ME.txt): copie `switch/` para a raiz do cartão,
+IWADs em `sd:/switch/gzdoom/iwads/`, mods em `sd:/switch/gzdoom/pwads/` e abra o
+`gzdoom_launcher.nro` pelo Homebrew Menu em modo título (segure R ao abrir um jogo).
 
-UZDoom is **free and open-source software**, built and maintained by a dedicated community of developers and enthusiasts.
+## Compilar
 
-## 🙏 Acknowledgments
+Veja [`nx/build/README.md`](nx/build/README.md).
 
-UZDoom would not be possible without the foundational work of many people. We extend our immense gratitude to:
+## Código
 
-* **id Software** for creating the original DOOM and releasing its source code.
-* **Marisa Heit** for her foundational work on ZDoom, and **Christoph Oelckers** for his work on GZDoom.
-* The countless modders, mappers, and artists in the DOOM community who continue to create amazing content.
-* All the contributors who have submitted code, reported bugs, and helped improve the project over the years.
+- `src/common/platform/posix/nx/`: sistema do Switch (threads, crash log, tela de
+  carregamento, glthread experimental)
+- `tools/nxlauncher/`: launcher
+- `src/common/engine/nx_*`: workers, perf.log e estabilizador de FPS
+- `src/common/rendering/gles/gles_asynctex.*`, `src/rendering/hwrenderer/hw_nx*`:
+  texturas em segundo plano, prefetch e orçamento de luzes
 
-The **UZDoom Icon** was designed by **Carlos "Cardboard Marty" Sanchez**, copyrighted to the UZDoom Team, and licensed under **Creative Commons BY-SA 4.0**.
+O README original do UZDoom está em [`docs/README-UZDoom.md`](docs/README-UZDoom.md).
 
-See the [CONTRIBUTORS](CONTRIBUTORS) file for a full list of code contributors.
+## Licença
 
-## 📄 Legal
+GPLv3, como o UZDoom (veja `LICENSE`). Fontes do launcher (Bebas Neue, Poppins):
+SIL Open Font License.
 
-UZDoom is licensed under the **GNU General Public License (GPL) version 3 or any later version (GPLv3+)**.
+---
 
-This program is distributed in the hope that it will be useful, but **WITHOUT ANY WARRANTY**. See the GNU General Public License for more details.
-
-You can view the full license text here: <https://www.gnu.org/licenses/>
-
-**Copyrights:**
-* Copyright 1993-1996 id Software
-* Copyright 1999-2016 Marisa Heit
-* Copyright 2002-2016 Christoph Oelckers
-* Copyright 2017-2025 GZDoom Maintainers and Contributors
-* Copyright 2025-2026 UZDoom Maintainers and Contributors
-
-## 🌐 Resources
-
-* [Home Page][home]
-* [Wiki][wiki]
-* [Discord Server][community]
-* [Forum][forum]
-* [Engine Translation][status_trans]
-* [Game Translation][status_trans_games]
-
-### 🛠️ Building UZDoom
-
-To build UZDoom from source, please see UZDoom's GitHub [wiki][gh_wiki] for a full list of dependencies and detailed instructions. Build For [Linux][gh_linux] / [Windows][gh_windows] / [MacOS][gh_apple]
-
-<div align="center">
-
-[ <img src="branding/UZDoom%20Banner.svg" alt="UZDoom Footer" style="height: 8em; width: 100%" /> ][repo]
-
-[<img alt="Translation status" style="width: 49%" src="https://hosted.weblate.org/widget/uzdoom/open-graph.png" />][status_trans]
-[<img alt="Translation status" style="width: 49%" src="https://hosted.weblate.org/widget/doom-engine-games/open-graph.png" />][status_trans_games]
-
-</div>
-
-[gzdoom]: https://github.com/ZDoom/gzdoom/
-[zdoom]: https://github.com/rheit/zdoom/
-
-[repo]: https://github.com/UZDoom/UZDoom/
-[home]: https://zdoom.org/
-[wiki]: https://zdoom.org/wiki/
-[forum]: https://forum.zdoom.org/
-[community]: https://dsc.gg/zdoom
-
-[gh_wiki]: https://github.com/UZDoom/UZDoom/wiki/
-[gh_linux]: https://github.com/UZDoom/UZDoom/wiki/Compilation#linux
-[gh_windows]: https://github.com/UZDoom/UZDoom/wiki/Compilation#windows
-[gh_apple]: https://github.com/UZDoom/UZDoom/wiki/Compilation#macos
-
-[status_git]: https://github.com/UZDoom/UZDoom/actions/workflows/continuous_integration.yml
-[badge_git]: https://github.com/UZDoom/UZDoom/actions/workflows/continuous_integration.yml/badge.svg
-
-[badge_trans]: https://hosted.weblate.org/widget/uzdoom/svg-badge.svg
-[status_trans]: https://hosted.weblate.org/engage/uzdoom/
-
-[badge_trans_games]: https://hosted.weblate.org/widget/doom-engine-games/svg-badge.svg
-[status_trans_games]: https://hosted.weblate.org/engage/doom-engine-games/
+*English:* Nintendo Switch (homebrew) port of UZDoom 5.0.3 with its own launcher.
+Engine resources are identical to upstream 5.0.3, so any mod that runs on UZDoom
+5.0.3 works; the changes are Switch-specific loading, threading and frame-rate
+stability work. Build instructions in `nx/build/README.md`.
