@@ -394,6 +394,7 @@ extend class Actor
 		{
 			return false, null;
 		}
+
 		// Don't spawn monsters if this actor has been massacred
 		if (DamageType == 'Massacre' && GetDefaultByType(missile).bIsMonster)
 		{
