@@ -355,6 +355,10 @@ public: class ShaderVariantData
 
 
 		int lights_index = 0;
+		// Switch port: copy of the light data last uploaded to this program. Neighbouring
+		// walls and flats lit by the same torches get byte-identical light data; skipping the
+		// upload then saves the driver a full re-upload of the shader's constant buffer.
+		TArray<float> nxLastLights;
 		int bones_index = 0;
 		int modelmatrix_index = 0;
 		int normalmodelmatrix_index = 0;

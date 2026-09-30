@@ -23,6 +23,7 @@
 #include "g_levellocals.h"
 #include "actorinlines.h"
 #include "hw_dynlightdata.h"
+#include "hw_nxlights.h"
 #include "hw_shadowmap.h"
 #include "hwrenderer/scene/hw_drawinfo.h"
 #include "hwrenderer/scene/hw_drawstructs.h"
@@ -124,7 +125,7 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FSec
 			if (!node) continue;
 
 			light=node->lightsource;
-			if (light->ShouldLightActor(self))
+			if (light->ShouldLightActor(self) && NXLightAllowed(light))
 			{
 				float dist;
 				FVector3 L;
@@ -182,10 +183,11 @@ void HWDrawInfo::GetDynSpriteLight(AActor *self, float x, float y, float z, FSec
 							lb *= alpha;
 						}
 
-						// Get GLDEFS intensity
-						lr *= light->GetLightDefIntensity();
-						lg *= light->GetLightDefIntensity();
-						lb *= light->GetLightDefIntensity();
+						// Get GLDEFS intensity (and the Switch port's light budget fade)
+						const float nxint = float(light->GetLightDefIntensity()) * NXLightFade(light);
+						lr *= nxint;
+						lg *= nxint;
+						lb *= nxint;
 
 						if (light->IsSubtractive())
 						{
@@ -253,7 +255,7 @@ void hw_GetDynModelLight(AActor *self, FDynLightData &modellightdata)
 					auto node = pair->Value.get();
 					if (!node) continue;
 					FDynamicLight *light = node->lightsource;
-					if (light->ShouldLightActor(self))
+					if (light->ShouldLightActor(self) && NXLightAllowed(light))
 					{
 						int group = subsector->sector->PortalGroup;
 						DVector3 pos = light->PosRelative(group);

@@ -28,6 +28,7 @@
 #include "actorinlines.h"
 #include "texturemanager.h"
 #include "hw_dynlightdata.h"
+#include "hw_nxlights.h"
 #include "hw_material.h"
 #include "hw_cvars.h"
 #include "hw_clock.h"
@@ -436,7 +437,7 @@ void HWWall::SetupLights(HWDrawInfo*di, FDynLightData &lightdata)
 				auto node = pair->Value.get();
 				if (!node) continue;
 
-				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap())
+				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap() && NXLightAllowed(node->lightsource))
 				{
 					iter_dlight++;
 
@@ -499,7 +500,7 @@ void HWWall::SetupLights(HWDrawInfo*di, FDynLightData &lightdata)
 				auto node = pair->Value.get();
 				if (!node) continue;
 
-				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap())
+				if (node->lightsource->IsActive() && !node->lightsource->DontLightMap() && NXLightAllowed(node->lightsource))
 				{
 					iter_dlight++;
 

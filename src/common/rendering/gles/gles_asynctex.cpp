@@ -272,7 +272,9 @@ static void PreUpload()
 		auto hw = static_cast<FHardwareTexture *>(mat->GetLayer(layerindex, 0, &layer));
 		if (hw == nullptr || hw->GetTextureHandle() != 0 || layer->layerTexture != key.tex || (layer->scaleFlags | CTF_ProcessData) != key.flags) continue;
 		preuploading = true;
-		hw->BindOrCreate(key.tex, 0, CLAMP_XY_NOMIP, 0, layer->scaleFlags);
+		// with mipmaps (built on the CPU): world sprites need them, and a texture created without
+		// them would get them from glGenerateMipmap in the middle of drawing (slow on the Switch)
+		hw->BindOrCreate(key.tex, 0, CLAMP_XY, 0, layer->scaleFlags);
 		preuploading = false;
 		count++;
 	}

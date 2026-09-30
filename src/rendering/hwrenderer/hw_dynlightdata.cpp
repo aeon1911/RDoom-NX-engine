@@ -18,6 +18,7 @@
 #include "actorinlines.h"
 #include "a_dynlight.h"
 #include "hw_dynlightdata.h"
+#include "hw_nxlights.h"
 #include"hw_cvars.h"
 #include "v_video.h"
 #include "hwrenderer/scene/hw_drawstructs.h"
@@ -85,8 +86,8 @@ void AddLightToList(FDynLightData &dld, int group, FDynamicLight * light, bool f
 	if (light->target && (light->target->renderflags2 & RF2_LIGHTMULTALPHA))
 		cs *= (float)light->target->Alpha;
 
-	// Multiply intensity from GLDEFS
-	cs *= (float)light->GetLightDefIntensity();
+	// Multiply intensity from GLDEFS (and the Switch port's light budget fade)
+	cs *= (float)light->GetLightDefIntensity() * NXLightFade(light);
 
 	float r = light->GetRed() / 255.0f * cs;
 	float g = light->GetGreen() / 255.0f * cs;

@@ -27,6 +27,7 @@
 #include "p_lnspec.h"
 #include "matrix.h"
 #include "hw_dynlightdata.h"
+#include "hw_nxlights.h"
 #include "hw_cvars.h"
 #include "hw_clock.h"
 #include "hw_lighting.h"
@@ -161,7 +162,7 @@ void HWFlat::SetupLights(HWDrawInfo *di, FDynLightData &lightdata, int portalgro
 
 			FDynamicLight * light = node->lightsource;
 
-			if (!light->IsActive() || light->DontLightMap())
+			if (!light->IsActive() || light->DontLightMap() || !NXLightAllowed(light))
 			{
 				continue;
 			}

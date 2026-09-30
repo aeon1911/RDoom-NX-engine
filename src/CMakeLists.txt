@@ -734,6 +734,7 @@ set( FASTMATH_SOURCES
 	common/textures/hires/xbr/xbrz_old.cpp
 	common/rendering/gl_load/gl_load.c
 	rendering/hwrenderer/hw_dynlightdata.cpp
+	rendering/hwrenderer/hw_nxlights.cpp
 	rendering/hwrenderer/scene/hw_bsp.cpp
 	rendering/hwrenderer/scene/hw_fakeflat.cpp
 	rendering/hwrenderer/scene/hw_decal.cpp
@@ -1139,6 +1140,7 @@ set (PCH_SOURCES
 	common/thirdparty/libsmackerdec/src/SmackerDecoder.cpp
 	common/engine/cycler.cpp
 	common/engine/nx_perf.cpp
+	common/engine/nx_governor.cpp
 	common/engine/nx_jobs.cpp
 	rendering/hwrenderer/hw_nxprefetch.cpp
 	common/engine/d_event.cpp

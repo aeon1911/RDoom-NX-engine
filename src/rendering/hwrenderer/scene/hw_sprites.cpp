@@ -15,6 +15,7 @@
 **
 */
 
+#include "nx_governor.h"
 #include "p_local.h"
 #include "p_effect.h"
 #include "g_level.h"
@@ -180,7 +181,9 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 			if (dynlightindex == -1)	// only set if we got no light buffer index. This covers all cases where sprite lighting is used.
 			{
 				float out[3] = {};
-				di->GetDynSpriteLight(gl_light_sprites ? actor : nullptr, gl_light_particles ? particle : nullptr, out);
+				// Switch port: at its higher levels the frame rate stabilizer stops lighting sprites with dynamic lights
+				const bool nxlit = nxGovLevel < 4;
+				di->GetDynSpriteLight((gl_light_sprites && nxlit) ? actor : nullptr, (gl_light_particles && nxlit) ? particle : nullptr, out);
 				state.SetDynLight(out[0], out[1], out[2]);
 			}
 		}

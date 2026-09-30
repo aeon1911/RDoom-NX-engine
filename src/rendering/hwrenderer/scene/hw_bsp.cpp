@@ -15,6 +15,7 @@
 **
 */
 
+#include "nx_governor.h"
 #include "p_lnspec.h"
 #include "p_local.h"
 #include "a_sharedglobal.h"
@@ -566,14 +567,15 @@ void HWDrawInfo::AddSpecialPortalLines(subsector_t * sub, sector_t * sector, lin
 // Switch port: effects and decorations (gore, casings, smoke, torches...)
 // further away than this aren't drawn. Monsters, projectiles, players,
 // pickups and anything that can be shot are always drawn. 0 = off.
-CVAR(Float, nx_effect_cull, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, nx_effect_cull, 0.f, 0)
 // ...and fading effects (smoke, sparks) below this opacity aren't drawn either
-CVAR(Float, nx_effect_minalpha, 0.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, nx_effect_minalpha, 0.f, 0)
 
 static inline bool NXCullEffect(AActor *thing, const DVector3 &viewpos)
 {
-	double cull = nx_effect_cull;
-	double minalpha = nx_effect_minalpha;
+	// the frame rate stabilizer can tighten both while frames are late
+	double cull = NXGov_EffectCull(nx_effect_cull);
+	double minalpha = NXGov_MinAlpha(nx_effect_minalpha);
 	if (cull <= 0 && minalpha <= 0) return false;
 	if (thing->player || (thing->flags3 & MF3_ISMONSTER) || (thing->flags & (MF_MISSILE | MF_SPECIAL | MF_SHOOTABLE))) return false;
 	if (minalpha > 0 && !(thing->RenderStyle.Flags & (STYLEF_Alpha1 | STYLEF_TransSoulsAlpha)) && thing->Alpha < minalpha) return true;
@@ -612,7 +614,7 @@ void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 			if (R_ShouldDrawSpriteShadow(thing))
 			{
 				double dist = (thing->Pos() - vp.Pos).LengthSquared();
-				double check = r_actorspriteshadowdist;
+				double check = NXGov_ShadowDist(r_actorspriteshadowdist);
 				if (dist <= check * check)
 				{
 					sprite.Process(this, thing, sector, in_area, false, true);
@@ -644,7 +646,7 @@ void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 		if (R_ShouldDrawSpriteShadow(thing))
 		{
 			double dist = (thing->Pos() - vp.Pos).LengthSquared();
-			double check = r_actorspriteshadowdist;
+			double check = NXGov_ShadowDist(r_actorspriteshadowdist);
 			if (dist <= check * check)
 			{
 				sprite.Process(this, thing, sector, in_area, true, true);
@@ -658,10 +660,16 @@ void HWDrawInfo::RenderThings(subsector_t * sub, sector_t * sector)
 void HWDrawInfo::RenderParticles(subsector_t *sub, sector_t *front)
 {
 	SetupSprite.Clock();
+	// Switch port: particles are pure effects - far away ones are skipped like other effects (nx_effect_cull)
+	const double nxcull = NXGov_EffectCull(nx_effect_cull);
+	const double nxcull2 = nxcull * nxcull;
+	const DVector2 nxview = Viewpoint.Pos.XY();
 	for (uint32_t i = 0; i < sub->sprites.Size(); i++)
 	{
 		DVisualThinker *sp = sub->sprites[i];
 		if (!sp || sp->ObjectFlags & OF_EuthanizeMe)
+			continue;
+		if (nxcull > 0 && (sp->PT.Pos.XY() - nxview).LengthSquared() > nxcull2)
 			continue;
 		if (mClipPortal)
 		{
@@ -674,6 +682,8 @@ void HWDrawInfo::RenderParticles(subsector_t *sub, sector_t *front)
 	}
 	for (int i = Level->ParticlesInSubsec[sub->Index()]; i != NO_PARTICLE; i = Level->Particles[i].snext)
 	{
+		if (nxcull > 0 && (Level->Particles[i].Pos.XY() - nxview).LengthSquared() > nxcull2)
+			continue;
 		if (mClipPortal)
 		{
 			int clipres = mClipPortal->ClipPoint(Level->Particles[i].Pos.XY());

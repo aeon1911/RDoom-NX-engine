@@ -33,6 +33,9 @@ struct NXPerfCounters
 	int thinkers = 0;		// thinkers ticked (summed over the frame's tics)
 	int tex_async = 0, tex_wait = 0, tex_budget = 0, snd_async = 0, tex_preupload = 0;
 	int64_t texpixels = 0;
+	int draws = 0;				// GL draw calls of the 3D scene and 2D
+	int lightuploads = 0, lightskips = 0;	// dynamic light data uploaded / skipped because it was the same as the last one
+	int dynlights = 0, dynlightsall = 0;	// dynamic lights allowed this frame / active in the level
 };
 
 extern NXPerfCounters nxperf;

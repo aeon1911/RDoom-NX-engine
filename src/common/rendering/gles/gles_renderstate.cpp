@@ -31,6 +31,7 @@
 #include "gles_samplers.h"
 
 #include "hw_clock.h"
+#include "nx_perf.h"
 #include "printf.h"
 
 #include "hwrenderer/data/hw_viewpointbuffer.h"
@@ -365,7 +366,16 @@ bool FGLRenderState::ApplyShader()
 		if (totalVectors > (int)gles.numlightvectors)
 			totalVectors = gles.numlightvectors;
 
-		glUniform4fv(activeShader->cur->lights_index, totalVectors, lightPtr);
+		auto &last = activeShader->cur->nxLastLights;
+		const unsigned nfloats = unsigned(totalVectors) * 4;
+		if (last.Size() != nfloats || memcmp(last.Data(), lightPtr, nfloats * sizeof(float)))
+		{
+			glUniform4fv(activeShader->cur->lights_index, totalVectors, lightPtr);
+			last.Resize(nfloats);
+			if (nfloats) memcpy(last.Data(), lightPtr, nfloats * sizeof(float));
+			nxperf.lightuploads++;
+		}
+		else nxperf.lightskips++;
 
 		int range[4] = { 0,
 			modLights * LIGHT_VEC4_NUM,
@@ -588,6 +598,7 @@ void FGLRenderState::Draw(int dt, int index, int count, bool apply)
 			Apply();
 		}
 	drawcalls.Clock();
+	nxperf.draws++;
 	glDrawArrays(dt2gl[dt], index, count);
 	drawcalls.Unclock();
 }
@@ -599,6 +610,7 @@ void FGLRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 		Apply();
 	}
 	drawcalls.Clock();
+	nxperf.draws++;
 	glDrawElements(dt2gl[dt], count, GL_UNSIGNED_INT, (void*)(intptr_t)(index * sizeof(uint32_t)));
 	drawcalls.Unclock();
 }

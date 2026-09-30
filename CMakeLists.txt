@@ -73,7 +73,7 @@ if( NINTENDO_SWITCH )
 	# unless we just do this
 	set( CMAKE_CXX_EXTENSIONS ON )
 	# used in both gzdoom and launcher
-	set( SWITCH_APP_VERSION "uz5.0.3-general" )
+	set( SWITCH_APP_VERSION "uz5.0.3-nx4.1" )
 endif()
 
 # Recursive function to place PK3 archive source files into a hierarchy of source file in the IDE

@@ -15,6 +15,7 @@
 #include <switch.h>
 #include <pthread.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -60,8 +61,39 @@ template<class T> static T &At(void *base, size_t off) { return *(T *)((char *)b
 
 // The driver thread is created with the default (small) pthread stack; Mesa
 // compiles shaders on it, so give it a large one.
+// SDL's own threads (the audio thread, which also runs OpenAL's mixer) are
+// created by libnx on core 0 with the lowest priority: there they can only mix
+// sound while the game's thread waits, and whenever the game needs the audio
+// lock that the preempted mixer holds, the game has to wait for it. They go to
+// core 2 instead (above the asset worker), away from the game.
+CVAR(Bool, nx_audio_core2, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+extern "C" int SDL_SYS_CreateThread(void *thread);
+struct NXThreadStart { void *(*fn)(void *); void *arg; };
+static void *NXSDLThreadEntry(void *p)
+{
+	NXThreadStart t = *(NXThreadStart *)p;
+	free(p);
+	svcSetThreadCoreMask(CUR_THREAD_HANDLE, 2, 1ULL << 2);
+	svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2D);
+	return t.fn(t.arg);
+}
+
 extern "C" int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*fn)(void *), void *arg)
 {
+	uintptr_t ra = (uintptr_t)__builtin_return_address(0);
+	uintptr_t sdl = (uintptr_t)&SDL_SYS_CreateThread;
+	if (nx_audio_core2 && ra >= sdl && ra < sdl + 0x100)
+	{
+		auto t = (NXThreadStart *)malloc(sizeof(NXThreadStart));
+		if (t)
+		{
+			t->fn = fn;
+			t->arg = arg;
+			int r = __real_pthread_create(thread, attr, NXSDLThreadEntry, t);
+			if (r != 0) free(t);
+			return r;
+		}
+	}
 	if (gCreatingThread && attr == nullptr)
 	{
 		pthread_attr_t big;

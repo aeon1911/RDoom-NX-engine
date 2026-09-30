@@ -22,6 +22,7 @@
 **
 */
 
+#include "nx_perf.h"
 #include <stdio.h>
 
 
@@ -248,6 +249,7 @@ void DFrameBuffer::FPSLimit()
 	if (vid_maxfps <= 0 || cl_capfps)
 		return;
 
+	NXPERF_SCOPE(wait_ms, nullptr);	// Switch port: time spent here is waiting, not work (frame rate stabilizer)
 	uint64_t targetWakeTime = fpsLimitTime + 1'000'000 / vid_maxfps;
 
 	while (true)

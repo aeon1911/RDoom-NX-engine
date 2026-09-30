@@ -5,6 +5,7 @@
 ** SPDX-License-Identifier: GPL-3.0-or-later
 */
 
+#include "nx_governor.h"
 #include <stdio.h>
 #include <time.h>
 #include "nx_perf.h"
@@ -37,7 +38,7 @@ void (*NXPerf_SummaryHook)(FILE *f) = nullptr;
 static struct
 {
 	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present;
-	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips;
+	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel;
 } win;
 
 #ifdef __SWITCH__
@@ -64,7 +65,7 @@ static void WriteSettings(FILE *f)
 		"vid_vsync", "vid_maxfps", "cl_capfps", "vid_scalefactor", "nx_effect_cull", "nx_effect_minalpha", "r_actorspriteshadowdist", "vid_preferbackend", "gl_multithread", "r_dynlights", "gles_max_lights_per_surface",
 		"r_actorspriteshadow", "gl_texture_filter", "gl_texture_filter_anisotropic", "r_maxparticles", "cl_maxdecals",
 		"snd_channels", "snd_efx", "snd_samplerate", "gles_async_textures", "snd_asyncload", "nx_workers",
-		"gl_sort_textures", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_lateswap", nullptr };
+		"gl_sort_textures", "nx_dynlight_max", "nx_dynlight_dist", "nx_stabilizer", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_lateswap", nullptr };
 	fprintf(f, "# settings:");
 	for (int i = 0; names[i]; i++)
 	{
@@ -92,6 +93,11 @@ void NXPerf_EndFrame()
 	uint64_t dmiss = misses - lastMisses, dbytes = bytes - lastBytes;
 	lastMisses = misses;
 	lastBytes = bytes;
+
+	{
+		extern int nx_levelframes;
+		NXGovernor_Frame(frame, nxperf.swap_ms + nxperf.gpuwait_ms + nxperf.wait_ms, nx_levelframes > 3);
+	}
 
 	if (nx_perflog > 0 && linesWritten < 3000)
 	{
@@ -126,6 +132,12 @@ void NXPerf_EndFrame()
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
 		win.frameend += nxperf.frameend_ms;
+		win.draws += nxperf.draws;
+		win.lightuploads += nxperf.lightuploads;
+		win.lightskips += nxperf.lightskips;
+		win.dynlights += nxperf.dynlights;
+		win.dynlightsall += nxperf.dynlightsall;
+		win.govlevel += nxGovLevel;
 		frames++;
 		sumFrame += frame;
 		if (frame > maxFrame) maxFrame = frame;
@@ -138,18 +150,19 @@ void NXPerf_EndFrame()
 				if (perfFile)
 				{
 					WriteSettings(perfFile);
-					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd\n");
+					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab\n");
 				}
 			}
 			if (perfFile)
 			{
-				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d\n",
+				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d | %d | %d/%d %d/%d | %d\n",
 					(now - startTime) / 1000.0, frame, nxperf.tics, nxperf.tic_ms, nxperf.think_ms, nxperf.display_ms,
 					nxperf.scene_ms, nxperf.bsp_ms, nxperf.hud_ms, nxperf.update_ms, nxperf.gpuwait_ms, nxperf.swap_ms, nxperf.drawitems, nxperf.transitems,
 					nxperf.shaders, nxperf.shader_ms, nxperf.textures, nxperf.tex_ms, (long long)(nxperf.texpixels / 1000),
 					nxperf.sounds, nxperf.sound_ms, nxperf.sndupd_ms, nxperf.sndstarts, nxperf.sndstart_ms,
 					(unsigned long long)dmiss, (unsigned long long)(dbytes >> 10),
-					nxperf.tex_async, nxperf.tex_wait, nxperf.tex_budget, nxperf.tex_preupload, nxperf.snd_async);
+					nxperf.tex_async, nxperf.tex_wait, nxperf.tex_budget, nxperf.tex_preupload, nxperf.snd_async,
+					nxperf.draws, nxperf.dynlights, nxperf.dynlightsall, nxperf.lightuploads, nxperf.lightskips, nxGovLevel);
 				linesWritten++;
 			}
 		}
@@ -171,6 +184,8 @@ void NXPerf_EndFrame()
 				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | sprites waiting for their picture per frame %.1f\n",
 					win.tics ? win.tic / win.tics : 0.0, win.tics ? win.thinkers / win.tics : 0, win.drawitems / frames, win.transitems / frames,
 					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
+				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d)\n",
+					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel);
 			}
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);

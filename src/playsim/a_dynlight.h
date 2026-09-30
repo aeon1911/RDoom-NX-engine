@@ -307,4 +307,9 @@ public:
 	double lightDefIntensity;
 
 	FDynamicLightTouchLists touchlists;
+
+	// Switch port: dynamic light budget (hw_nxlights.cpp); zeroed when the light is created
+	int nxFrame;	// frame in which the light may be drawn
+	float nxFade;	// brightness multiplier (fading in/out)
+	bool nxCut;		// left out by the light count (fades back in)
 };

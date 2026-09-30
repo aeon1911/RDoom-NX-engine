@@ -55,6 +55,7 @@ void CleanSWDrawer()
 
 #include "g_levellocals.h"
 #include "a_dynlight.h"
+#include "hw_nxlights.h"
 
 
 void CollectLights(FLevelLocals* Level)
@@ -99,6 +100,9 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 	auto& RenderState = *screen->RenderState();
 
 	R_SetupFrame(mainvp, r_viewwindow, camera);
+
+	// Switch port: pick the dynamic lights that may be drawn this frame (nx_dynlight_max/dist)
+	if (mainview && camera->Level->HasDynamicLights) NXLights_Select(camera->Level, mainvp.Pos);
 
 	if (mainview && toscreen && !(camera->Level->flags3 & LEVEL3_NOSHADOWMAP) && camera->Level->HasDynamicLights && gl_light_shadowmap && screen->allowSSBO() && (screen->hwcaps & RFL_SHADER_STORAGE_BUFFER))
 	{

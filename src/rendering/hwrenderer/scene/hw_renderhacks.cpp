@@ -15,6 +15,7 @@
 **
 */
 
+#include "hw_nxlights.h"
 #include "a_sharedglobal.h"
 #include "a_dynlight.h"
 #include "r_utility.h"
@@ -118,7 +119,7 @@ int HWDrawInfo::SetupLightsForOtherPlane(subsector_t * sub, FDynLightData &light
 
 				FDynamicLight * light = node->lightsource;
 
-				if (!light->IsActive())
+				if (!light->IsActive() || !NXLightAllowed(light))
 				{
 					continue;
 				}

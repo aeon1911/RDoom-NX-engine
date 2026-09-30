@@ -60,6 +60,60 @@ unsigned int FHardwareTexture::lastbound[FHardwareTexture::MAX_TEXTURES];
 
 //===========================================================================
 //
+// Switch port: mipmaps are built on the CPU and uploaded level by level.
+//
+// glGenerateMipmap goes through Mesa's blitter on the Switch: one draw per
+// mip level with a full save/restore of the GL state around it, and the next
+// real draw has to revalidate everything. That made every new texture cost
+// milliseconds (even tiny ones), which showed up as hitches whenever new
+// sprites appeared (fire, explosions, monsters). A 2x2 box filter on the CPU
+// costs a few microseconds for a sprite.
+//
+//===========================================================================
+
+CVAR(Bool, gles_cpu_mipmaps, true, CVAR_GLOBALCONFIG)
+
+static void NXDownsample(const unsigned char *src, int sw, int sh, unsigned char *dst, int dw, int dh, int bpp)
+{
+	// 2x2 box filter (1x2 or 2x1 once one side is down to 1 pixel)
+	const int sx = sw > 1 ? 2 : 1, sy = sh > 1 ? 2 : 1;
+	const size_t srow = size_t(sw) * bpp;
+	for (int y = 0; y < dh; y++)
+	{
+		const unsigned char *r0 = src + size_t(y * sy) * srow;
+		const unsigned char *r1 = sy == 2 ? r0 + srow : r0;
+		unsigned char *d = dst + size_t(y) * dw * bpp;
+		for (int x = 0; x < dw; x++)
+		{
+			const unsigned char *a = r0 + size_t(x * sx) * bpp, *b = a + (sx - 1) * bpp;
+			const unsigned char *c = r1 + size_t(x * sx) * bpp, *e = c + (sx - 1) * bpp;
+			for (int i = 0; i < bpp; i++) d[i] = (unsigned char)((a[i] + b[i] + c[i] + e[i] + 2) >> 2);
+			d += bpp;
+		}
+	}
+}
+
+static void NXUploadMipmaps(const unsigned char *level0, int w, int h, int bpp, int texformat, int sourcetype)
+{
+	TArray<unsigned char> bufA, bufB;
+	const unsigned char *src = level0;
+	int level = 0;
+	while (w > 1 || h > 1)
+	{
+		int nw = w > 1 ? w / 2 : 1, nh = h > 1 ? h / 2 : 1;
+		TArray<unsigned char> &dst = (level & 1) ? bufB : bufA;
+		dst.Resize(unsigned(nw) * nh * bpp);
+		NXDownsample(src, w, h, dst.Data(), nw, nh, bpp);
+		level++;
+		glTexImage2D(GL_TEXTURE_2D, level, texformat, nw, nh, 0, sourcetype, GL_UNSIGNED_BYTE, dst.Data());
+		src = dst.Data();
+		w = nw;
+		h = nh;
+	}
+}
+
+//===========================================================================
+//
 //	Loads the texture image into the hardware
 //
 // NOTE: For some strange reason I was unable to find the source buffer
@@ -165,13 +219,16 @@ unsigned int FHardwareTexture::CreateTexture(unsigned char * buffer, int w, int 
 		}
 	}
 
-	if (deletebuffer && buffer) free(buffer);
-
 	if (mipmap && TexFilter[gl_texture_filter].mipmapping)
 	{
-		glGenerateMipmap(GL_TEXTURE_2D);
+		if (gles_cpu_mipmaps && buffer && (glTextureBytes == 1 || glTextureBytes == 4))
+			NXUploadMipmaps(buffer, rw, rh, glTextureBytes, texformat, sourcetype);
+		else
+			glGenerateMipmap(GL_TEXTURE_2D);
 		mipmapped = true;
 	}
+
+	if (deletebuffer && buffer) free(buffer);
 
 	if (texunit > 0) glActiveTexture(GL_TEXTURE0);
 	else if (texunit == -1) glBindTexture(GL_TEXTURE_2D, textureBinding);
