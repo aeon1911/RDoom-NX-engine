@@ -175,8 +175,32 @@ void RDoom_Crumb(const char *what)
 	close(fd);
 }
 
+static bool g_prevGpuLost = false;
+static int g_gpuStep = 0;
+
+// Keeps the previous session's logs in logs/anterior/, so a test after a freeze
+// or a crash does not overwrite the evidence.
+static void RotateLogs()
+{
+	static const char *const files[] = {
+		"logs/rdoom.log", "logs/engine.log", "logs/engine-stderr.log", "logs/engine-session.txt",
+		"logs/error.log", "logs/boot.log", "logs/last-launch.txt", "perf.log", "phase.log" };
+	MakeDirs(RDOOM_SD_ROOT "/logs/anterior");
+	for (const char *f : files)
+	{
+		const std::string from = std::string(RDOOM_SD_ROOT "/") + f;
+		if (!FileExists(from))
+			continue;
+		const std::string to = std::string(RDOOM_SD_ROOT "/logs/anterior/") + PathFileName(f);
+		remove(to.c_str());
+		rename(from.c_str(), to.c_str());
+	}
+}
+
 void RDoom_NXEarlyInit()
 {
+	MakeDirs(RDOOM_SD_ROOT "/logs");
+	RotateLogs();
 	unlink(RDOOM_SD_ROOT "/logs/boot.log");
 	RDoom_Crumb("early init");
 	// one fixed home, wherever the .nro was started from (hbloader, a
@@ -197,13 +221,32 @@ void RDoom_NXEarlyInit()
 
 	// The previous session lost the GPU: start the shader caches from scratch,
 	// so a pipeline or shader binary written around the failure is never reused.
+	// Workaround step (logs/gpu-workaround.txt: "<step> <build>"); a new build starts over.
+	{
+		std::string w;
+		char build[128] = "";
+		int step = 0;
+		if (ReadFile(RDOOM_SD_ROOT "/logs/gpu-workaround.txt", w) && sscanf(w.c_str(), "%d %127s", &step, build) == 2 &&
+			!strcmp(build, RDOOM_GIT_DESCRIBE))
+			g_gpuStep = step;
+	}
 	if (FileExists(RDOOM_SD_ROOT "/logs/gpu-lost.txt"))
 	{
+		g_prevGpuLost = true;
 		RLOG_W("boot", "previous session lost the GPU: clearing shader caches (%d files)", RDoom_ClearShaderCaches());
 		RemoveFile(RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
 		rename(RDOOM_SD_ROOT "/logs/gpu-lost.txt", RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
+		if (g_gpuStep < RDOOM_GPU_STEPS)
+			g_gpuStep++;
+		char buf[192];
+		snprintf(buf, sizeof(buf), "%d %s\n", g_gpuStep, RDOOM_GIT_DESCRIBE);
+		WriteFileAtomic(RDOOM_SD_ROOT "/logs/gpu-workaround.txt", buf);
+		RLOG_W("boot", "GPU workaround step is now %d", g_gpuStep);
 	}
 }
+
+bool RDoom_PreviousSessionLostGpu() { return g_prevGpuLost; }
+int RDoom_GpuWorkaroundStep() { return g_gpuStep; }
 
 int RDoom_ClearShaderCaches()
 {

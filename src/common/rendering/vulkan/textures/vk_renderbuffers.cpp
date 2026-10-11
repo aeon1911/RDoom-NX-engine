@@ -21,6 +21,16 @@
 */
 
 #include "vk_renderbuffers.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/rdoom_nx.h"
+#include "c_cvars.h"
+#endif
+
+#ifdef __SWITCH__
+// GPU-fault workaround switch: use D32_SFLOAT_S8_UINT for every depth buffer
+CVAR(Bool, rd_vk_depth32, false, 0)
+#endif
+
 #include "vulkan/renderer/vk_postprocess.h"
 #include "vulkan/textures/vk_texture.h"
 #include "vulkan/textures/vk_framebuffer.h"
@@ -86,6 +96,10 @@ void VkRenderBuffers::BeginFrame(int width, int height, int sceneWidth, int scen
 
 void VkRenderBuffers::CreatePipelineDepthStencil(int width, int height)
 {
+#ifdef __SWITCH__
+	if (rd_vk_depth32)
+		PipelineDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+#endif
 	ImageBuilder builder;
 	builder.Size(width, height);
 	builder.Format(PipelineDepthStencilFormat);
@@ -184,6 +198,15 @@ void VkRenderBuffers::CreateSceneColor(int width, int height, VkSampleCountFlagB
 
 void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCountFlagBits samples)
 {
+#ifdef __SWITCH__
+	if (rd_vk_depth32)
+		SceneDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+	{
+		FString d;
+		d.Format("%s, %dx%d, %d sample(s)", SceneDepthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8" : "D24_UNORM_S8", width, height, (int)samples);
+		RDoom_SessionSet("vulkan_scene_depth", d.GetChars());
+	}
+#endif
 	ImageBuilder builder;
 	builder.Size(width, height);
 	builder.Samples(samples);

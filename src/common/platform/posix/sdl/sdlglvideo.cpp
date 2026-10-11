@@ -43,6 +43,7 @@
 #include <zvulkan/vulkandevice.h>
 #include <zvulkan/vulkaninstance.h>
 #include <ctype.h>
+#include <unistd.h>
 #include <zvulkan/vulkansurface.h>
 #endif
 
@@ -465,6 +466,26 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 	// (NVK_DEBUG=push_sync, NVK_SWITCH_NO_UBO_CBUF=1, ...), applied before the
 	// driver starts; lower-case names are engine CVARs (rd_vk_frameoverlap=0,
 	// r_dynlights=0, ...). Nothing changes when the file is absent.
+	// Automatic workarounds after a lost GPU (see rdoom_nx.h); a manual
+	// rdoom_debug.txt replaces them.
+	if (vid_preferbackend == BACKEND_VULKAN && RDoom_GpuWorkaroundStep() > 0 && access("rdoom_debug.txt", F_OK) != 0)
+	{
+		const int step = RDoom_GpuWorkaroundStep();
+		FString applied;
+		setenv("NVK_SWITCH_PERF_LOG", "1", 1);  // the driver then reports channel errors in detail
+		applied += "NVK_SWITCH_PERF_LOG=1";
+		if (step >= 1) { setenv("NVK_DEBUG", "no_compression", 1); applied += " NVK_DEBUG=no_compression"; }
+		if (step >= 2) { setenv("NVK_SWITCH_NO_UBO_CBUF", "1", 1); applied += " NVK_SWITCH_NO_UBO_CBUF=1"; }
+		if (step >= 3) { setenv("NVK_SWITCH_MAPPED_COMPLETION", "0", 1); applied += " NVK_SWITCH_MAPPED_COMPLETION=0"; }
+		if (step >= 4)
+		{
+			if (FBaseCVar *cv = FindCVar("rd_vk_depth32", nullptr)) { UCVarValue v; v.Bool = true; cv->SetGenericRep(v, CVAR_Bool); }
+			applied += " rd_vk_depth32=1";
+		}
+		FString d;
+		d.Format("step %d of %d%s: %s", step, RDOOM_GPU_STEPS, RDoom_PreviousSessionLostGpu() ? " (previous session lost the GPU)" : " (kept: no GPU loss since)", applied.GetChars());
+		RDoom_SessionSet("gpu_workaround", d.GetChars());
+	}
 	if (FILE *ef = fopen("rdoom_debug.txt", "r"))
 	{
 		char line[256];

@@ -24,3 +24,10 @@ int RDoom_ClearShaderCaches();
 // Marker logs/gpu-lost.txt (+ session line) after VK_ERROR_DEVICE_LOST; the next
 // start-up clears the shader caches when it finds it.
 void RDoom_VulkanDeviceLost(const char *what);
+
+// Automatic GPU workarounds: each session that follows a lost GPU moves one step
+// further (0 = none, up to RDOOM_GPU_STEPS); the step is kept while it works and
+// starts over with a new build. Applied by the video start-up (sdlglvideo.cpp).
+#define RDOOM_GPU_STEPS 4
+bool RDoom_PreviousSessionLostGpu();
+int RDoom_GpuWorkaroundStep();

@@ -5,6 +5,7 @@
 #include <set>
 #include <string>
 #include <cstring>
+#include <cstdio>
 
 bool VulkanDeviceWasLost = false;
 void (*VulkanDeviceLostCallback)(const char *what) = nullptr;
@@ -76,6 +77,18 @@ void VulkanInstance::CreateInstance()
 		}
 	}
 
+#if defined(__SWITCH__)
+	// No validation layer exists here, but Mesa reports GPU faults (channel
+	// errors, device loss) through VK_EXT_debug_utils: always listen to it.
+	bool driverMessages = false;
+	for (const auto& ext : AvailableExtensions)
+		if (!strcmp(ext.extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME))
+		{
+			EnabledExtensions.insert(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+			driverMessages = !debugLayerFound;
+		}
+#endif
+
 	// Enable optional instance extensions we are interested in
 	for (const auto& ext : AvailableExtensions)
 	{
@@ -142,6 +155,30 @@ void VulkanInstance::CreateInstance()
 
 		DebugLayerActive = true;
 	}
+
+#if defined(__SWITCH__)
+	if (driverMessages)
+	{
+		VkDebugUtilsMessengerCreateInfoEXT info = {};
+		info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+		info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+			VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+		info.pfnUserCallback = [](VkDebugUtilsMessageSeverityFlagBitsEXT sev, VkDebugUtilsMessageTypeFlagsEXT, const VkDebugUtilsMessengerCallbackDataEXT* data, void*) -> VkBool32 {
+			// written unbuffered to the SD card: cap the chatter, never the errors
+			static int info, errors;
+			const bool isError = (sev & (VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT)) != 0;
+			if (isError ? errors++ < 1000 : info++ < 1500)
+				fprintf(stderr, "[vulkan %s] %s\n",
+					(sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ? "error" : (sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) ? "warning" : "info",
+					data && data->pMessage ? data->pMessage : "");
+			return VK_FALSE;
+		};
+		if (vkCreateDebugUtilsMessengerEXT && vkCreateDebugUtilsMessengerEXT(Instance, &info, nullptr, &debugMessenger) != VK_SUCCESS)
+			debugMessenger = VK_NULL_HANDLE;
+	}
+#endif
 
 	PhysicalDevices = GetPhysicalDevices(Instance, ApiVersion);
 }
