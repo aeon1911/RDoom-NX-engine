@@ -328,7 +328,7 @@ const float DefaultFrac[MS_COUNT] = { 0.f, 0.01f, 0.12f, 0.14f, 0.24f, 0.88f, 0.
 
 const char *const StageText[MS_COUNT] =
 {
-	"Iniciando o UZDoom",
+	"Iniciando o RDoom (UZDoom 5.0.3)",
 	"Abrindo arquivos do jogo e mods",
 	"Iniciando áudio",
 	"Carregando texturas e sprites",
@@ -349,7 +349,7 @@ struct FileItem
 };
 
 std::mutex mtx;
-std::string gTitle = "UZDoom";
+std::string gTitle = "RDoom";
 std::string gSubtitle;
 std::string gDetail;
 std::vector<FileItem> gFiles;
@@ -505,7 +505,7 @@ void PrepareBackground()
 	gBackground.assign(SW * SH, 0);
 	// a picture prepared by the launcher (already darkened / blurred)
 	bool loaded = false;
-	FILE *f = fopen("temp/loadbg.rgba", "rb");
+	FILE *f = fopen("cache/loadbg.rgba", "rb");
 	if (f)
 	{
 		size_t n = fread(gBackground.data(), 4, SW * SH, f);
@@ -604,9 +604,9 @@ void RenderFrame(uint32_t *dst, int stride, float dt)
 
 	// header
 	const uint32_t accent = 0xFF4A1C, accent2 = 0xFFB020;
-	c.Text(fTitle, 76, 64, 44, "UZDOOM", 0xFFFFFF);
-	float tw = c.TextWidth(fTitle, 76, "UZDOOM");
-	c.Text(fTitle, 34, 64 + tw + 14, 78, "NINTENDO SWITCH", accent);
+	c.Text(fTitle, 76, 64, 44, "RDOOM", 0xFFFFFF);
+	float tw = c.TextWidth(fTitle, 76, "RDOOM");
+	c.Text(fTitle, 34, 64 + tw + 14, 78, "UZDOOM 5.0.3 \xE2\x80\xA2 NINTENDO SWITCH", accent);
 	c.RoundRect(64, 128, 86, 5, 2.5f, accent, 255, accent2);
 	{
 		// port credit
@@ -743,7 +743,7 @@ void DrawThread(void *)
 void ReadLoadInfo()
 {
 	// written by the launcher: first line = profile name
-	FILE *f = fopen("temp/loadinfo.txt", "r");
+	FILE *f = fopen("cache/loadinfo.txt", "r");
 	if (!f) return;
 	char line[512];
 	if (fgets(line, sizeof(line), f))
@@ -762,7 +762,7 @@ std::string BaseName(const std::string &p)
 
 double FileMB(const std::string &path)
 {
-	static const char *const dirs[] = { "", "iwads/", "pwads/", nullptr };
+	static const char *const dirs[] = { "", "iwads/", "mods/", nullptr };
 	struct stat st;
 	for (int i = 0; dirs[i]; i++)
 	{

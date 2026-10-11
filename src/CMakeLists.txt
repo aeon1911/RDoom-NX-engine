@@ -266,7 +266,9 @@ if( DEM_CMAKE_COMPILER_IS_GNUCXX_COMPATIBLE )
 		set( CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -ljemalloc")
 	endif()
 
-	if( NOT NO_STRIP )
+	# Switch: keep the symbols in uzdoom.elf for crash reports; the NRO is
+	# made from a separately stripped copy (see the POST_BUILD step below).
+	if( NOT NO_STRIP AND NOT NINTENDO_SWITCH )
 		set (CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -s" )
 		set (CMAKE_EXE_LINKER_FLAGS_MINSIZEREL "${CMAKE_EXE_LINKER_FLAGS_MINSIZEREL} -s" )
 	endif()
@@ -435,7 +437,10 @@ set( PLAT_NX_SOURCES
 	common/platform/posix/nx/st_start.cpp
 	common/platform/posix/nx/i_specialpaths.cpp
 	common/platform/posix/nx/nx_loadscreen.cpp
-	common/platform/posix/nx/nx_glthread.cpp )
+	common/platform/posix/nx/nx_glthread.cpp
+	common/platform/posix/nx/nx_tls_bridge.c
+	common/platform/posix/nx/nx_nvcompat.c
+	common/platform/posix/nx/rdoom_nx.cpp )
 set( PLAT_OSX_SOURCES
 	common/platform/posix/osx/iwadpicker_cocoa.mm
 	common/platform/posix/osx/i_specialpaths.mm
@@ -1326,18 +1331,25 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
 if( NINTENDO_SWITCH )
 	list( REMOVE_ITEM PROJECT_LIBRARIES dl )
-	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL glapi drm_nouveau )
+	# One Mesa for every renderer: the Mesa 26.2.4 Horizon SDK (docker/Dockerfile)
+	# provides loaderless NVK (libvulkan.a) and EGL/GL/GLES over the same
+	# Horizon GPU backend. libEGL embeds Zink, so it needs libvulkan too.
+	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL GLESv2 glapi )
 	if( HAVE_VULKAN )
-		# Mesa NVK is loaderless: libvulkan.a is the driver. expat/zstd/elf/z
-		# are the archives the Switch Vulkan SDK exports next to it.
-		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} vulkan expat zstd z )
+		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} vulkan )
 	endif()
+	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} expat zstd z )
 	# static ZMusic pulls in libsndfile (+ codecs) and mpg123
 	set( ZMUSIC_LIBRARIES ${ZMUSIC_LIBRARIES} sndfile FLAC opus vorbisenc vorbis ogg mpg123 m )
-	# nx/deps/libvulkan.a is the Horizon NVK built with -mtp=soft.
-	# Mesa 26.2.4 in portlibs uses tpidr_el0 (libnx never sets that
-	# register) and must not be linked ahead of this archive.
-	link_directories( ${CMAKE_SOURCE_DIR}/nx/deps/switch $ENV{DEVKITPRO}/portlibs/switch/lib )
+	link_directories( $ENV{DEVKITPRO}/portlibs/switch/lib )
+
+	# the RDoom launcher, linked into the same NRO
+	add_subdirectory( ${RDOOM_LAUNCHER_DIR} ${CMAKE_BINARY_DIR}/rdoom_launcher )
+	string( TIMESTAMP RDOOM_BUILD_DATE "%Y-%m-%d" UTC )
+	execute_process( COMMAND git -C ${CMAKE_SOURCE_DIR} describe --always --dirty --tags
+		OUTPUT_VARIABLE RDOOM_GIT_DESCRIBE OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET )
+	configure_file( ${CMAKE_CURRENT_SOURCE_DIR}/common/platform/posix/nx/rdoom_version.h.in
+		${CMAKE_BINARY_DIR}/rdoom_version.h )
 endif()
 
 add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
@@ -1391,11 +1403,20 @@ endif()
 
 if( NINTENDO_SWITCH )
 	# everything is static on Switch, so let the linker resolve the circular deps
-	target_link_libraries( zdoom -Wl,--start-group ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash nx -Wl,--end-group )
+	target_link_libraries( zdoom -Wl,--start-group rdoom_launcher_ui rdoom_launcher_core ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash nx -Wl,--end-group )
+	# nx_tls_bridge.c: TPIDR_EL0 for the Rust code in the Mesa SDK.
+	# nx_nvcompat.c: emulator quirk in fixed GPU VA reservations.
+	target_link_options( zdoom PRIVATE "-Wl,--wrap=threadCreate"
+		"-Wl,--wrap=nvioctlNvhostAsGpu_AllocSpace" "-Wl,--wrap=nvioctlNvhostAsGpu_FreeSpace" "-Wl,--wrap=nvioctlNvhostAsGpu_InitializeEx"
+		"-pthread" )
+	option( RDOOM_VK_TRACE "Log recorded Vulkan commands per submit (diagnostic)" OFF )
+	if( RDOOM_VK_TRACE )
+		target_sources( zdoom PRIVATE common/platform/posix/nx/nx_vktrace.cpp )
+		target_link_options( zdoom PRIVATE "-Wl,--wrap=vkCmdFillBuffer" "-Wl,--wrap=vkCmdUpdateBuffer" "-Wl,--wrap=vkCmdCopyBuffer" "-Wl,--wrap=vkCmdCopyBufferToImage" "-Wl,--wrap=vkCmdCopyImageToBuffer" "-Wl,--wrap=vkCmdCopyImage" "-Wl,--wrap=vkCmdBlitImage" "-Wl,--wrap=vkCmdClearColorImage" "-Wl,--wrap=vkCmdClearDepthStencilImage" "-Wl,--wrap=vkCmdClearAttachments" "-Wl,--wrap=vkCmdResetQueryPool" "-Wl,--wrap=vkCmdDispatch" "-Wl,--wrap=vkCmdResolveImage" "-Wl,--wrap=vkCmdDraw" "-Wl,--wrap=vkCmdDrawIndexed" "-Wl,--wrap=vkCmdBeginRenderPass" "-Wl,--wrap=vkCmdPipelineBarrier" "-Wl,--wrap=vkQueueSubmit" )
+	endif()
 	if( HAVE_VULKAN )
-		# Mesa and newlib both define a few libc helpers. The ICD entry points
-		# must stay linked even though volk does not load them on Switch.
-		target_link_options( zdoom PRIVATE "-Wl,--allow-multiple-definition" "-Wl,-u,vk_icdGetInstanceProcAddr" "-Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion" "-pthread" )
+		# volk does not load the ICD entry points on Switch; keep them linked
+		target_link_options( zdoom PRIVATE "-Wl,-u,vk_icdGetInstanceProcAddr" "-Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion" )
 	endif()
 	# Mesa glthread support (nx_glthread.cpp): count driver-thread syncs, big stack for the driver thread
 	target_link_options( zdoom PRIVATE "-Wl,--wrap=_mesa_glthread_finish_before" "-Wl,--wrap=pthread_create" "-Wl,--wrap=nwindowDequeueBuffer" "-Wl,--wrap=nwindowQueueBuffer" "-Wl,--wrap=_util_queue_fence_wait" )
@@ -1521,9 +1542,11 @@ endif()
 
 if( NINTENDO_SWITCH )
 	add_custom_command( TARGET zdoom POST_BUILD
-		COMMAND nacptool --create "UZDoom" "fgsfds, UZDoom team" "${SWITCH_APP_VERSION}" ${CMAKE_BINARY_DIR}/gzdoom.nacp
-		COMMAND ${CMAKE_STRIP} -o ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf $<TARGET_FILE:zdoom>
-		COMMAND elf2nro ${CMAKE_BINARY_DIR}/gzdoom_stripped.elf ${CMAKE_BINARY_DIR}/gzdoom.nro --icon=${CMAKE_SOURCE_DIR}/nx/gzdoom.jpg --nacp=${CMAKE_BINARY_DIR}/gzdoom.nacp )
+		COMMAND nacptool --create "RDoom" "RDoom - UZDoom port" "${SWITCH_APP_VERSION}" ${CMAKE_BINARY_DIR}/RDoom.nacp
+		COMMAND ${CMAKE_STRIP} -o ${CMAKE_BINARY_DIR}/RDoom_stripped.elf $<TARGET_FILE:zdoom>
+		# CHKFEAT is a NOP on the Switch's CPU; make that explicit for emulators
+		COMMAND python3 ${CMAKE_SOURCE_DIR}/../scripts/patch_chkfeat.py ${CMAKE_BINARY_DIR}/RDoom_stripped.elf
+		COMMAND elf2nro ${CMAKE_BINARY_DIR}/RDoom_stripped.elf ${CMAKE_BINARY_DIR}/RDoom.nro --icon=${RDOOM_ICON} --nacp=${CMAKE_BINARY_DIR}/RDoom.nacp )
 endif()
 
 add_custom_command(TARGET zdoom POST_BUILD

@@ -72,8 +72,11 @@ if( NINTENDO_SWITCH )
 	# our gcc complains about the use of alloca, stricmp, etc without including the appropriate headers
 	# unless we just do this
 	set( CMAKE_CXX_EXTENSIONS ON )
-	# used in both gzdoom and launcher
-	set( SWITCH_APP_VERSION "uz5.0.3-nx4.13" )
+	set( RDOOM_VERSION "1.0.0" )
+	set( SWITCH_APP_VERSION "${RDOOM_VERSION}" )
+	# RDoom launcher sources (outside this tree so the engine stays a patch series)
+	set( RDOOM_LAUNCHER_DIR "${CMAKE_SOURCE_DIR}/../launcher" CACHE PATH "RDoom launcher source directory" )
+	set( RDOOM_ICON "${CMAKE_SOURCE_DIR}/../assets/build/icon_256.jpg" CACHE FILEPATH "256x256 JPEG icon for the NRO" )
 endif()
 
 # Recursive function to place PK3 archive source files into a hierarchy of source file in the IDE
@@ -301,8 +304,8 @@ option (NO_DISCORDRPC "Disable Discord RPC support" OFF)
 
 if( NINTENDO_SWITCH )
 	set( NO_DISCORDRPC ON )
-	# Vulkan is optional. The launcher selects it; if the device fails to
-	# come up, the existing GLES renderer still starts the game.
+	# Vulkan (Mesa NVK) is RDoom's primary renderer; OpenGL / OpenGL ES stay
+	# available as explicit choices in the launcher.
 	if( HAVE_VULKAN )
 		add_compile_definitions( VK_USE_PLATFORM_VI_NN=1 )
 	endif()

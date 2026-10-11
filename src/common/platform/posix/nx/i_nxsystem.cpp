@@ -36,6 +36,9 @@
 #include <unistd.h>
 #include <switch.h>
 #include "nx_loadscreen.h"
+#include "nx_nvcompat.h"
+#include "nx_tls_bridge.h"
+#include "rdoom_nx.h"
 
 void NX_AudioAfterLoadScreen();
 void NX_StartHangWatch();
@@ -46,12 +49,8 @@ static int nxlink_sock = -1;
 
 extern "C" void userAppInit(void)
 {
-	FILE *f = fopen("boot.log", "w");
-	if (f)
-	{
-		fputs("uz5.0.3-nx4.13 userAppInit\n", f);
-		fclose(f);
-	}
+	// Rust code inside the Mesa SDK reads TPIDR_EL0 (see nx_tls_bridge.c)
+	NX_TlsBridgeInit();
 	socketInitializeDefault();
 #ifdef _DEBUG
 	nxlink_sock = nxlinkStdio();
@@ -100,7 +99,7 @@ void I_NXShowFatalError(const char *title, const char *message)
 
 	printf("\x1b[31;1m%s\x1b[0m\n\n", title);
 	printf("%s\n\n", message);
-	printf("\x1b[33mThis message was also saved to error.log in the gzdoom folder.\x1b[0m\n\n");
+	printf("\x1b[33mThis message was also saved to switch/rdoom/logs/error.log.\x1b[0m\n\n");
 	printf("Press + to exit.\n");
 	consoleUpdate(NULL);
 
@@ -161,7 +160,7 @@ static void CrashPrintf(const char *fmt, ...)
 
 static void CrashFlush()
 {
-	int fd = open("crash.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	int fd = open("logs/crash.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	if (fd >= 0)
 	{
 		write(fd, crashbuf, crashlen);
@@ -204,7 +203,7 @@ static void CrashStackScan(u64 sp)
 extern "C" void __libnx_exception_handler(ThreadExceptionDump *ctx)
 {
 	crashlen = 0;
-	CrashPrintf("UZDoom Switch crash report\nCPU exception, error_desc=0x%x esr=0x%x far=0x%lx\n",
+	CrashPrintf("RDoom (UZDoom 5.0.3) crash report\nCPU exception, error_desc=0x%x esr=0x%x far=0x%lx\n",
 		ctx->error_desc, ctx->esr, (unsigned long)ctx->far.x);
 	CrashPrintf("module base: 0x%lx\n", (unsigned long)ModBase());
 	CrashPrintf("pc: 0x%lx (+0x%lx)\nlr: 0x%lx (+0x%lx)\nsp: 0x%lx fp: 0x%lx\n",
@@ -235,7 +234,7 @@ extern "C" void __libnx_exception_handler(ThreadExceptionDump *ctx)
 static void I_NXTerminate()
 {
 	crashlen = 0;
-	CrashPrintf("UZDoom Switch crash report\nstd::terminate called\n");
+	CrashPrintf("RDoom (UZDoom 5.0.3) crash report\nstd::terminate called\n");
 	CrashPrintf("module base: 0x%lx\n", (unsigned long)ModBase());
 	if (auto eptr = std::current_exception())
 	{
@@ -291,7 +290,9 @@ static void *NXMainThread(void *p)
 	// on core 0 can never hold it up when it wakes from waiting on the GPU
 	svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2C);
 	std::set_terminate(I_NXTerminate);
+	RDoom_Crumb("engine: main thread running");
 	a->ret = a->fn(a->argc, a->argv);
+	RDoom_Crumb("engine: main returned");
 	return nullptr;
 }
 
@@ -299,6 +300,7 @@ static void NXAtExit()
 {
 	NXLS_Stop();
 	NXLS_SetBoost(false);
+	RDoom_NXAtExit();
 }
 
 // The launcher passes @temp/nxargs.txt instead of the full command line.
@@ -369,18 +371,21 @@ static void NXExpandResponseFiles(int &argc, char **&argv)
 
 int I_NXRunWithBigStack(int (*fn)(int, char **), int argc, char **argv)
 {
-	FILE *bf = fopen("boot.log", "a");
-	if (bf)
-	{
-		fprintf(bf, "main argc=%d\n", argc);
-		for (int i = 0; i < argc && i < 6; i++)
-			fprintf(bf, " arg %s\n", argv[i] ? argv[i] : "(null)");
-		fclose(bf);
-	}
+	// global constructors have run by now (userAppInit is too early for this)
+	RDoom_NXEarlyInit();
 	std::set_terminate(I_NXTerminate);
 	FindModuleRange();
-	NX_StartHangWatch();
+	// before any GPU use: emulators may answer fixed GPU VA reservations
+	// differently from the console (see nx_nvcompat.c)
+	NX_NvCompatInit();
 	NXExpandResponseFiles(argc, argv);
+	if (!RDoom_NXRunLauncher(argc, argv, argc, argv))
+	{
+		RDoom_NXAtExit();
+		return 0;
+	}
+	RDoom_Crumb("engine: hang watch");
+	NX_StartHangWatch();
 
 	// switches that are only meant for this port and must not reach the engine
 	bool boost = false, loadscreen = true;
@@ -395,11 +400,13 @@ int I_NXRunWithBigStack(int (*fn)(int, char **), int argc, char **argv)
 	argc = n;
 	argv[argc] = nullptr;
 
+	RDoom_Crumb("engine: args filtered");
 	atexit(NXAtExit);
 	if (boost) NXLS_SetBoost(true);
 	if (loadscreen) NXLS_Start(argc, argv);
 	else NX_AudioAfterLoadScreen();
 
+	RDoom_Crumb("engine: loading screen started");
 	NXMainArgs args = { fn, argc, argv, 0 };
 	pthread_attr_t attr;
 	pthread_attr_init(&attr);
