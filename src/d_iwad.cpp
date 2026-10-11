@@ -673,6 +673,13 @@ int FIWadManager::IdentifyVersion (std::vector<FileSys::ResourceName>&wadfiles, 
 #ifdef _WIN32
 			isAbsolute |= (custwad.Len() >= 2 && custwad[1] == ':');
 #endif
+#ifdef __SWITCH__
+			// Horizon devices: "sdmc:/switch/rdoom/iwads/doom2.wad"
+			{
+				long colon = custwad.IndexOf(":/");
+				isAbsolute |= (colon > 0 && custwad.IndexOf("/") == colon + 1);
+			}
+#endif
 			if (isAbsolute)
 			{
 				if (FileExists(custwad)) mFoundWads.Push({ custwad, "", -1 });

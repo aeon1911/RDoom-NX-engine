@@ -967,6 +967,11 @@ bool IsAbsPath(const char *name)
 	/* [A-Za-z]: (for Windows) */
 	if (isalpha((uint8_t)name[0]) && name[1] == ':')    return true;
 #endif /* _WIN32 */
+#ifdef __SWITCH__
+	/* Horizon device prefix, e.g. "sdmc:/" or "romfs:/" */
+	for (const char *p = name; *p && *p != '/'; p++)
+		if (p[0] == ':' && p[1] == '/' && p != name) return true;
+#endif
 	return 0;
 }
 
