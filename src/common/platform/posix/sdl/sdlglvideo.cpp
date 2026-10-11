@@ -474,13 +474,28 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 		FString applied;
 		setenv("NVK_SWITCH_PERF_LOG", "1", 1);  // the driver then reports channel errors in detail
 		applied += "NVK_SWITCH_PERF_LOG=1";
-		if (step >= 1) { setenv("NVK_DEBUG", "no_compression", 1); applied += " NVK_DEBUG=no_compression"; }
-		if (step >= 2) { setenv("NVK_SWITCH_NO_UBO_CBUF", "1", 1); applied += " NVK_SWITCH_NO_UBO_CBUF=1"; }
-		if (step >= 3) { setenv("NVK_SWITCH_MAPPED_COMPLETION", "0", 1); applied += " NVK_SWITCH_MAPPED_COMPLETION=0"; }
-		if (step >= 4)
+		auto setcvar = [&](const char *name, const char *value) {
+			if (FBaseCVar *cv = FindCVar(name, nullptr)) { UCVarValue v; v.String = value; cv->SetGenericRep(v, CVAR_String); }
+			applied.AppendFormat(" %s=%s", name, value);
+		};
+		if (step == 1)
 		{
-			if (FBaseCVar *cv = FindCVar("rd_vk_depth32", nullptr)) { UCVarValue v; v.Bool = true; cv->SetGenericRep(v, CVAR_Bool); }
-			applied += " rd_vk_depth32=1";
+			// every driver-side workaround at once (one at a time did not help on
+			// hardware, 2026-10-11) plus a D32S8 depth buffer
+			setenv("NVK_DEBUG", "no_compression", 1);
+			setenv("NVK_SWITCH_NO_UBO_CBUF", "1", 1);
+			setenv("NVK_SWITCH_MAPPED_COMPLETION", "0", 1);
+			applied += " NVK_DEBUG=no_compression NVK_SWITCH_NO_UBO_CBUF=1 NVK_SWITCH_MAPPED_COMPLETION=0";
+			setcvar("rd_vk_depth32", "1");
+		}
+		else if (step >= 2)
+		{
+			// trace mode: every draw submitted and waited for, one log line per draw
+			setenv("NVK_DEBUG", "push_sync", 1);
+			applied += " NVK_DEBUG=push_sync (trace mode)";
+			setcvar("vk_submit_size", "1");
+			setcvar("rd_vk_drawlog", "2");
+			setcvar("rd_vk_frameoverlap", "0");
 		}
 		FString d;
 		d.Format("step %d of %d%s: %s", step, RDOOM_GPU_STEPS, RDoom_PreviousSessionLostGpu() ? " (previous session lost the GPU)" : " (kept: no GPU loss since)", applied.GetChars());

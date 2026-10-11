@@ -26,8 +26,8 @@ int RDoom_ClearShaderCaches();
 void RDoom_VulkanDeviceLost(const char *what);
 
 // Automatic GPU workarounds: each session that follows a lost GPU moves one step
-// further (0 = none, up to RDOOM_GPU_STEPS); the step is kept while it works and
+// further (0 = none, 1 = all driver workarounds + D32S8 depth, 2 = draw trace); the step is kept while it works and
 // starts over with a new build. Applied by the video start-up (sdlglvideo.cpp).
-#define RDOOM_GPU_STEPS 4
+#define RDOOM_GPU_STEPS 2
 bool RDoom_PreviousSessionLostGpu();
 int RDoom_GpuWorkaroundStep();

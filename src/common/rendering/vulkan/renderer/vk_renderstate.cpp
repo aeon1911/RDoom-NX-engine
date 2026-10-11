@@ -55,12 +55,39 @@ void VkRenderState::ClearScreen()
 	mCommandBuffer->draw(4, 1, FFlatVertexBuffer::FULLSCREEN_INDEX, 0);
 }
 
+#ifdef __SWITCH__
+// GPU-hang diagnostics: with vk_submit_size 1 and NVK_DEBUG=push_sync every draw
+// is submitted and waited for on its own; each recorded draw leaves a line in
+// logs/boot.log first, so after a hang the last line names the draw that hung.
+CVAR(Int, rd_vk_drawlog, 0, 0)
+extern int nx_levelframes;
+void RDoom_Crumb(const char *what);
+
+static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, int index, int count)
+{
+	static int logged;
+	if (rd_vk_drawlog <= 0 || nx_levelframes < 1 || nx_levelframes > rd_vk_drawlog || logged >= 6000)
+		return;
+	logged++;
+	char buf[220];
+	snprintf(buf, sizeof(buf), "draw %d (level frame %d): %s first %d count %d | vfmt %d effect %d special %d alphatest %d drawtype %d layers %d depth %d/%d stencil %d | %s",
+		logged, nx_levelframes, kind, index, count, key.VertexFormat, key.EffectState, key.SpecialEffect, key.AlphaTest, key.DrawType,
+		key.NumTextureLayers, key.DepthTest, key.DepthWrite, key.StencilTest,
+		mat && mat->Source() ? mat->Source()->GetName().GetChars() : "(no texture)");
+	RDoom_Crumb(buf);
+}
+#define RD_LOGDRAW(kind, index, count) LogDraw(mPipelineKey, mMaterial.mMaterial, kind, index, count)
+#else
+#define RD_LOGDRAW(kind, index, count)
+#endif
+
 void VkRenderState::Draw(int dt, int index, int count, bool apply)
 {
 	if (apply || mNeedApply)
 		Apply(dt);
 
 	mCommandBuffer->draw(count, 1, index, 0);
+	RD_LOGDRAW("draw", index, count);
 }
 
 void VkRenderState::DrawIndexed(int dt, int index, int count, bool apply)
@@ -69,6 +96,7 @@ void VkRenderState::DrawIndexed(int dt, int index, int count, bool apply)
 		Apply(dt);
 
 	mCommandBuffer->drawIndexed(count, 1, index, 0, 0);
+	RD_LOGDRAW("indexed", index, count);
 }
 
 bool VkRenderState::SetDepthClamp(bool on)

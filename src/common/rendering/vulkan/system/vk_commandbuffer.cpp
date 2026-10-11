@@ -170,6 +170,20 @@ void VkCommandBufferManager::FlushCommands(VulkanCommandBuffer** commands, size_
 	}
 #endif
 
+#if defined(__SWITCH__)
+	{
+		extern int nx_levelframes;
+		static int logged;
+		EXTERN_CVAR(Int, rd_vk_drawlog)
+		if (rd_vk_drawlog > 0 && nx_levelframes >= 1 && nx_levelframes <= rd_vk_drawlog && logged < 6000)
+		{
+			void RDoom_Crumb(const char *what);
+			char buf[96];
+			snprintf(buf, sizeof(buf), "submit %d: %d command buffer(s)%s", ++logged, (int)count, finish ? ", frame end (post-processing + present)" : "");
+			RDoom_Crumb(buf);
+		}
+	}
+#endif
 	{
 		NXPERF_SCOPE(vksubmit_ms, &nxperf.vksubmits);
 		submit.Execute(fb->device.get(), fb->device->GraphicsQueue, mSubmitFence[currentIndex].get());
