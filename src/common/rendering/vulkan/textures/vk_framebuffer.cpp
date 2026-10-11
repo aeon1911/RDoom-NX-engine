@@ -45,6 +45,11 @@ VkFramebufferManager::~VkFramebufferManager()
 {
 }
 
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/rdoom_nx.h"
+static unsigned rdoomPresented;
+#endif
+
 void VkFramebufferManager::AcquireImage()
 {
 	bool exclusiveFullscreen = fb->IsFullscreen() && vk_exclusivefullscreen;
@@ -59,6 +64,14 @@ void VkFramebufferManager::AcquireImage()
 		CurrentExclusiveFullscreen = exclusiveFullscreen;
 
 		SwapChain->Create(CurrentWidth, CurrentHeight, CurrentVSync ? 2 : 3, CurrentVSync, CurrentHdr, CurrentExclusiveFullscreen);
+#ifdef __SWITCH__
+		{
+			FString sc;
+			sc.Format("%dx%d, %d images, format %d, vsync %s", CurrentWidth, CurrentHeight, SwapChain->ImageCount(),
+				(int)SwapChain->Format().format, CurrentVSync ? "on (FIFO)" : "off");
+			RDoom_SessionSet("vulkan_swapchain", sc.GetChars());
+		}
+#endif
 
 		RenderFinishedSemaphores.clear();
 		for (int i = 0; i < SwapChain->ImageCount(); i++)
@@ -79,5 +92,17 @@ void VkFramebufferManager::AcquireImage()
 void VkFramebufferManager::QueuePresent()
 {
 	if (PresentImageIndex != -1)
+	{
 		SwapChain->QueuePresent(PresentImageIndex, RenderFinishedSemaphores[PresentImageIndex].get());
+#ifdef __SWITCH__
+		// proof in the session report that frames really reach the display
+		rdoomPresented++;
+		if (rdoomPresented == 1 || rdoomPresented % 600 == 0)
+		{
+			FString n;
+			n.Format("%u", rdoomPresented);
+			RDoom_SessionSet("vulkan_frames_presented", n.GetChars());
+		}
+#endif
+	}
 }

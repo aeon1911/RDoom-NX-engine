@@ -40,6 +40,9 @@
 #include "v_video.h"
 #include "version.h"
 #include "vk_renderdevice.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/rdoom_nx.h"
+#endif
 #include "vulkan/renderer/vk_descriptorset.h"
 #include "vulkan/renderer/vk_postprocess.h"
 #include "vulkan/renderer/vk_raytrace.h"
@@ -505,6 +508,14 @@ void VulkanRenderDevice::PrintStartupLog()
 	vkversion = VK_API_VERSION_MAJOR(props.apiVersion) * 100 + VK_API_VERSION_MINOR(props.apiVersion);
 
 	Printf("Vulkan device: " TEXTCOLOR_ORANGE "%s\n", props.deviceName);
+#ifdef __SWITCH__
+	{
+		FString d;
+		d.Format("%s (api %s, driver %s)", props.deviceName, apiVersion.GetChars(), driverVersion.GetChars());
+		RDoom_SessionSet("vulkan_device", d.GetChars());
+		RDoom_SessionSet("renderer_active", "vulkan");
+	}
+#endif
 	Printf("Vulkan device type: %s\n", deviceType.GetChars());
 	Printf("Vulkan version: %s (api) %s (driver)\n", apiVersion.GetChars(), driverVersion.GetChars());
 

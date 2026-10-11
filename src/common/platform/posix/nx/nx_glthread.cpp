@@ -6,6 +6,9 @@
 // executed by a separate driver thread, so the game thread only records
 // commands while the driver work runs on another core.
 //
+// RDoom: with the Mesa 26.2.4 SDK this file no longer starts glthread itself
+// (see NX_GLThreadStart); it keeps the audio thread placement, the sync
+// statistics and the hang reporter. Original notes for Mesa 20.1:
 // The Switch build of Mesa (egl_switch, Mesa 20.1) ships the glthread code but
 // never switches it on, so it is started here by hand once the GL context
 // exists. The structure offsets below come from the disassembly of that exact
@@ -30,11 +33,6 @@ CVAR(Int, nx_glthread_core, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 extern "C"
 {
-	void *_glapi_get_context(void);
-	void *_glapi_get_dispatch(void);
-	void _glapi_set_dispatch(void *table);
-	void _mesa_glthread_init(void *ctx);
-	void _mesa_glthread_finish(void *ctx);
 	void __real__mesa_glthread_finish_before(void *ctx, const char *func);
 	int __real_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*fn)(void *), void *arg);
 	Result __real_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out_fence);
@@ -208,7 +206,7 @@ void NX_GLThreadFinish()
 	if (!gEnabled) return;
 	double start = NXPerf_NowMS();
 	NX_GLCrumb("glthread finish (end of frame)");
-	_mesa_glthread_finish(gCtx);
+	(void)gCtx;
 	NX_GLCrumb("glthread finish done");
 	nxperf.glfinish_ms += NXPerf_NowMS() - start;
 }
@@ -432,55 +430,9 @@ const char *NX_GLThreadStatus()
 
 void NX_GLThreadStart()
 {
-	if (gEnabled) return;
-	if (!nx_glthread) { snprintf(gStatus, sizeof(gStatus), "off (launcher option)"); return; }
-	if (gAttempts >= 2) return;	// once at startup, once more at the first frame
-	gAttempts++;
-
-	void *ctx = _glapi_get_context();
-	if (!ctx) { snprintf(gStatus, sizeof(gStatus), "failed (try %d): no current GL context", gAttempts); Printf("glthread: %s\n", gStatus); return; }
-
-	// sanity checks: the dispatch table the game uses right now must be the one
-	// stored at the expected offset, glthread must be off and the state
-	// tracker's manager must not have a background hook yet.
-	void *dispatch = _glapi_get_dispatch();
-	void *client = At<void *>(ctx, CTX_CLIENT_DISPATCH);
-	void *server = At<void *>(ctx, CTX_CLIENT_DISPATCH + 8);
-	void *marshal = At<void *>(ctx, CTX_MARSHAL_EXEC);
-	int enabled = At<uint8_t>(ctx, CTX_GLTHREAD_ENABLED);
-	void *st = At<void *>(ctx, CTX_ST);
-	void *smapi = st ? At<void *>(st, 0) : nullptr;
-	void *screen = smapi ? At<void *>(smapi, 0) : nullptr;
-	void *bg = smapi ? At<void *>(smapi, SMAPI_SET_BACKGROUND_CONTEXT) : nullptr;
-	bool dispatchOk = dispatch != nullptr && (dispatch == client || dispatch == server);
-	if (!dispatchOk || enabled != 0 || marshal != nullptr || smapi == nullptr || screen == nullptr || bg != nullptr)
-	{
-		snprintf(gStatus, sizeof(gStatus), "failed (try %d): Mesa layout (dispatch %p client %p server %p marshal %p enabled %d st %p smapi %p screen %p bg %p)",
-			gAttempts, dispatch, client, server, marshal, enabled, st, smapi, screen, bg);
-		Printf("glthread: %s\n", gStatus);
-		return;
-	}
-
-	At<void *>(smapi, SMAPI_SET_BACKGROUND_CONTEXT) = (void *)NXGLThreadStarted;
-	gCreatingThread = 1;
-	gThreadCreateResult = -1;
-	_mesa_glthread_init(ctx);
-	gCreatingThread = 0;
-
-	if (At<uint8_t>(ctx, CTX_GLTHREAD_ENABLED) == 0 || At<void *>(ctx, CTX_CLIENT_DISPATCH) == nullptr)
-	{
-		At<void *>(smapi, SMAPI_SET_BACKGROUND_CONTEXT) = nullptr;
-		snprintf(gStatus, sizeof(gStatus), "failed (try %d): Mesa could not start the driver thread (pthread_create %d, driver thread ran %d)",
-			gAttempts, gThreadCreateResult, (int)gThreadRan);
-		Printf("glthread: %s\n", gStatus);
-		return;
-	}
-	// from now on this thread only records commands
-	_glapi_set_dispatch(At<void *>(ctx, CTX_CLIENT_DISPATCH));
-	gCtx = ctx;
-	gMainHandle = threadGetCurHandle();
-	gEnabled = true;
-	StartWatchdog();
-	snprintf(gStatus, sizeof(gStatus), "on (try %d, driver thread on core %d)", gAttempts, (int)nx_glthread_core);
-	Printf("glthread: %s\n", gStatus);
+	// RDoom links the Mesa 26.2.4 Horizon SDK, whose glthread is switched with
+	// MESA_SWITCH_GLTHREAD before the EGL context exists (see sdlglvideo.cpp).
+	// The Mesa 20.1 structure-offset method used by the earlier port must not
+	// touch Mesa 26 internals, so nothing is patched here any more.
+	snprintf(gStatus, sizeof(gStatus), "Mesa 26 glthread %s (MESA_SWITCH_GLTHREAD)", nx_glthread ? "requested" : "off");
 }

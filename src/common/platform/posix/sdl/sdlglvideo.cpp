@@ -29,6 +29,8 @@
 #ifdef __SWITCH__
 #include "common/platform/posix/nx/nx_glthread.h"
 #include "common/platform/posix/nx/nx_loadscreen.h"
+#include "common/platform/posix/nx/rdoom_nx.h"
+#include "common/platform/posix/nx/nx_nvcompat.h"
 #include "gamestate.h"
 #include <switch.h>
 #endif
@@ -369,7 +371,7 @@ bool I_CreateVulkanSurface(VkInstance instance, VkSurfaceKHR *surface)
 	// sentinel. With format 0 the compositor never shows the Vulkan image.
 	// Do this only when that screen owned the window. Releasing buffers on
 	// a window we never claimed drops the layer and the present never shows.
-	if (NXLS_ClaimedDisplay())
+	if (NXLS_ClaimedDisplay() || RDoom_NXLauncherUsedDisplay())
 	{
 		nwindowReleaseBuffers(win);
 		win->format = ~0u;
@@ -379,7 +381,9 @@ bool I_CreateVulkanSurface(VkInstance instance, VkSurfaceKHR *surface)
 	VkViSurfaceCreateInfoNN createInfo = {};
 	createInfo.sType = VK_STRUCTURE_TYPE_VI_SURFACE_CREATE_INFO_NN;
 	createInfo.window = (void*)win;
-	return vkCreateViSurfaceNN(instance, &createInfo, nullptr, surface) == VK_SUCCESS;
+	VkResult res = vkCreateViSurfaceNN(instance, &createInfo, nullptr, surface);
+	RDoom_SessionSet("vulkan_surface", res == VK_SUCCESS ? "VK_NN_vi_surface on the default NWindow: ok" : "vkCreateViSurfaceNN FAILED");
+	return res == VK_SUCCESS;
 #else
 	assert(Priv::window != nullptr);
 	return SDL_Vulkan_CreateSurface(Priv::window, instance, surface) == SDL_TRUE;
@@ -452,6 +456,10 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 
 	// first try Vulkan, if that fails OpenGL
 #ifdef HAVE_VULKAN
+#ifdef __SWITCH__
+	RDoom_SessionSet("renderer_requested", vid_preferbackend == BACKEND_VULKAN ? "vulkan" : vid_preferbackend == BACKEND_OPENGL ? "opengl" : "gles");
+	RDoom_SessionSet("nv_compat", NX_NvCompatStatus());
+#endif
 	if (Priv::vulkanEnabled)
 	{
 		try
@@ -466,6 +474,13 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 			for (unsigned int i = 0; i < count; i++)
 				builder.RequireExtension(names[i]);
 			auto instance = builder.Create();
+#ifdef __SWITCH__
+			{
+				FString iv;
+				iv.Format("ok (api %d.%d, loaderless Mesa NVK)", VK_VERSION_MAJOR(instance->ApiVersion), VK_VERSION_MINOR(instance->ApiVersion));
+				RDoom_SessionSet("vulkan_instance", iv.GetChars());
+			}
+#endif
 
 			VkSurfaceKHR surfacehandle = nullptr;
 			if (!I_CreateVulkanSurface(instance->Instance, &surfacehandle))
@@ -478,7 +493,12 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 		catch (CVulkanError const &error)
 		{
 #ifdef __SWITCH__
-			I_FatalError("Vulkan:\n%s\n", error.what());
+			// No silent switch to OpenGL: the profile asked for Vulkan.
+			RDoom_SessionSet("renderer_active", "none");
+			RDoom_SessionSet("vulkan_error", error.what());
+			I_FatalError("O Vulkan n\xc3\xa3o p\xc3\xb4" "de ser iniciado / Vulkan could not be started:\n%s\n\n"
+				"Detalhes em switch/rdoom/logs/engine-session.txt.\n"
+				"Para usar outro renderizador, escolha OpenGL ou OpenGL ES no perfil (launcher > Editar perfil > Renderizador).", error.what());
 #else
 			if (Priv::window != nullptr)
 			{
@@ -641,6 +661,12 @@ SystemGLFrameBuffer::SystemGLFrameBuffer(void *hMonitor, bool fullscreen)
 		}
 	}
 
+#ifdef __SWITCH__
+	// Mesa 26 Horizon SDK: glthread is chosen before the EGL context exists
+	EXTERN_CVAR(Bool, nx_glthread)
+	setenv("MESA_SWITCH_GLTHREAD", nx_glthread ? "1" : "0", 1);
+	RDoom_SessionSet("renderer_active", vid_preferbackend == BACKEND_OPENGL ? "opengl (Mesa NVC0)" : "gles (Mesa NVC0)");
+#endif
 	for ( ; glvers[glveridx][0] > 0; ++glveridx)
 	{
 		Priv::SetupPixelFormat(0, glvers[glveridx]);

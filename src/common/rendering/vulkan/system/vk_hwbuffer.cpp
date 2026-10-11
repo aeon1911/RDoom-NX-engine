@@ -70,6 +70,15 @@ void VkHardwareBuffer::SetData(size_t size, const void *data, BufferUsageType us
 		fb->GetCommands()->TransferDeleteList->Add(std::move(mStaging));
 	}
 
+#ifdef __SWITCH__
+	// The Tegra X1 has one memory for CPU and GPU, so a staging buffer plus a
+	// GPU copy only adds work. It also matters for NVK: its only queue family
+	// has the compute bit, and NVK then runs vkCmdCopyBuffer as an internal
+	// compute shader. Static and stream buffers are written in place instead.
+	// SetData always creates a new buffer, so nothing in flight reads it.
+	if (usage == BufferUsageType::Static || usage == BufferUsageType::Stream)
+		usage = BufferUsageType::Mappable;
+#endif
 	if (usage == BufferUsageType::Static || usage == BufferUsageType::Stream)
 	{
 		// Note: we could recycle buffers here for the stream usage type to improve performance
@@ -180,9 +189,23 @@ void VkHardwareBuffer::Resize(size_t newsize)
 	buffersize = newsize;
 
 	// Transfer data from old to new
+#ifdef __SWITCH__
+	// both buffers are host-visible (unified memory): copy on the CPU
+	{
+		fb->GetCommands()->WaitForCommands(false);
+		void *src = oldBuffer->Map(0, oldsize);
+		void *dst = mBuffer->Map(0, newsize);
+		if (src && dst)
+			memcpy(dst, src, min(oldsize, newsize));
+		mBuffer->Unmap();
+		oldBuffer->Unmap();
+		fb->GetCommands()->TransferDeleteList->Add(std::move(oldBuffer));
+	}
+#else
 	fb->GetCommands()->GetTransferCommands()->copyBuffer(oldBuffer.get(), mBuffer.get(), 0, 0, oldsize);
 	fb->GetCommands()->TransferDeleteList->Add(std::move(oldBuffer));
 	fb->GetCommands()->WaitForCommands(false);
+#endif
 	fb->GetDescriptorSetManager()->UpdateHWBufferSet(); // Old buffer may be part of the bound descriptor set
 
 	// Fetch pointer to new buffer

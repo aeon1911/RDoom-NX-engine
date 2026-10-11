@@ -61,6 +61,9 @@ bool VkShaderManager::CompileNextShader()
 	const char *mainvp = "shaders/glsl/main.vp";
 	const char *mainfp = "shaders/glsl/main.fp";
 	int i = compileIndex;
+	// already finished: callers may poll again after the last shader
+	if (i < 0)
+		return true;
 
 	if (compileState == 0)
 	{

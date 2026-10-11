@@ -58,14 +58,22 @@ VkCommandBufferManager::VkCommandBufferManager(VulkanRenderDevice* fb) : fb(fb)
 	for (int i = 0; i < maxConcurrentSubmitCount; i++)
 		mSubmitWaitFences[i] = mSubmitFence[i]->fence;
 
-	if (fb->device->GraphicsTimeQueries)
-	{
-		mTimestampQueryPool = QueryPoolBuilder()
-			.QueryType(VK_QUERY_TYPE_TIMESTAMP, MaxTimestampQueries)
-			.Create(fb->device.get());
+#ifndef __SWITCH__
+	CreateTimestampQueries();
+#endif
+	// Switch: created the first time "stat gpu" asks for GPU timings. NVK
+	// resets query pools with an internal compute dispatch, which costs a
+	// submit at start-up for a profiling feature most sessions never use.
+}
 
-		GetDrawCommands()->resetQueryPool(mTimestampQueryPool.get(), 0, MaxTimestampQueries);
-	}
+void VkCommandBufferManager::CreateTimestampQueries()
+{
+	if (mTimestampQueryPool || !fb->device->GraphicsTimeQueries)
+		return;
+	mTimestampQueryPool = QueryPoolBuilder()
+		.QueryType(VK_QUERY_TYPE_TIMESTAMP, MaxTimestampQueries)
+		.Create(fb->device.get());
+	GetDrawCommands()->resetQueryPool(mTimestampQueryPool.get(), 0, MaxTimestampQueries);
 }
 
 VkCommandBufferManager::~VkCommandBufferManager()
@@ -220,7 +228,8 @@ void VkCommandBufferManager::PushGroup(const FString& name)
 	if (!gpuStatActive)
 		return;
 
-	if (mNextTimestampQuery < MaxTimestampQueries && fb->device->GraphicsTimeQueries)
+	CreateTimestampQueries();
+	if (mTimestampQueryPool && mNextTimestampQuery < MaxTimestampQueries && fb->device->GraphicsTimeQueries)
 	{
 		TimestampQuery q;
 		q.name = name;
@@ -240,7 +249,7 @@ void VkCommandBufferManager::PopGroup()
 	TimestampQuery& q = timeElapsedQueries[mGroupStack.back()];
 	mGroupStack.pop_back();
 
-	if (mNextTimestampQuery < MaxTimestampQueries && fb->device->GraphicsTimeQueries)
+	if (mTimestampQueryPool && mNextTimestampQuery < MaxTimestampQueries && fb->device->GraphicsTimeQueries)
 	{
 		q.endIndex = mNextTimestampQuery++;
 		GetDrawCommands()->writeTimestamp(VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, mTimestampQueryPool.get(), q.endIndex);
@@ -250,7 +259,7 @@ void VkCommandBufferManager::PopGroup()
 void VkCommandBufferManager::UpdateGpuStats()
 {
 	uint64_t timestamps[MaxTimestampQueries];
-	if (mNextTimestampQuery > 0)
+	if (mNextTimestampQuery > 0 && mTimestampQueryPool)
 		mTimestampQueryPool->getResults(0, mNextTimestampQuery, sizeof(uint64_t) * mNextTimestampQuery, timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
 
 	double timestampPeriod = fb->device->PhysicalDevice.Properties.Properties.limits.timestampPeriod;

@@ -864,6 +864,9 @@ FShaderManager::FShaderManager()
 
 bool FShaderManager::CompileNextShader()
 {
+	// already finished: callers may poll again after the last shader
+	if (mCompilePass < 0)
+		return true;
 	if (mPassShaders[mCompilePass]->CompileNextShader())
 	{
 		mCompilePass++;

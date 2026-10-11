@@ -105,6 +105,7 @@ private:
 
 	enum { MaxTimestampQueries = 100 };
 	std::unique_ptr<VulkanQueryPool> mTimestampQueryPool;
+	void CreateTimestampQueries();
 	int mNextTimestampQuery = 0;
 	std::vector<size_t> mGroupStack;
 	std::vector<TimestampQuery> timeElapsedQueries;
