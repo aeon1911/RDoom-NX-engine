@@ -2186,6 +2186,41 @@ static void CalculateNetStabilityBuffer(int diff)
 }
 
 //
+// How many gameplay tics a single player frame may run on the Switch.
+//
+// Brutal Doom's tic is several milliseconds of ZScript, and the picture
+// costs the rest of a 30 fps budget. The stock loop runs every tic that
+// became due during a late frame — often 4 to 6 — before it draws again.
+// That is the slideshow: one recorded frame spent 99 ms only on thinkers.
+// A console game keeps presenting. One tic always runs. A second tic runs
+// only when the last picture left room for it inside 33 ms. Network games
+// and demos keep the original catch-up.
+//
+#ifdef __SWITCH__
+CVAR(Int, nx_simcap, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
+static int NXSinglePlayerSimCap()
+{
+	if (nx_simcap <= 0 || netgame || demoplayback || gamestate != GS_LEVEL)
+		return 8;
+	const double frame = NXPerf_LastFrameMS();
+	const double perTic = NXPerf_LastTicMS();
+	if (frame <= 0 || perTic <= 0)
+		return 2;
+	double outside = frame - NXPerf_LastSimMS();
+	if (outside < 0)
+		outside = 0;
+	const double budget = (1000.0 / 30.0) - outside;
+	int cap = int(budget / perTic);
+	if (cap < 1)
+		cap = 1;
+	if (cap > 2)
+		cap = 2;
+	return cap;
+}
+#endif
+
+//
 // TryRunTics
 //
 void TryRunTics()
@@ -2220,6 +2255,11 @@ void TryRunTics()
 	int totalTics = EnterTic - LastEnterTic;
 	if (totalTics > 1 && singletics)
 		totalTics = 1;
+#ifdef __SWITCH__
+	const int simCap = NXSinglePlayerSimCap();
+	if (totalTics > simCap)
+		totalTics = simCap;
+#endif
 
 	// Listen for other clients and send out data as needed. This is also
 	// needed for singleplayer! But is instead handled entirely through local
@@ -2273,6 +2313,10 @@ void TryRunTics()
 		if (totalTics < availableTics - StabilityBuffer)
 			++runTics;
 	}
+#ifdef __SWITCH__
+	if (runTics > simCap)
+		runTics = simCap;
+#endif
 
 	const int worldTimer = primaryLevel->LocalWorldTimer;
 	// If there are no tics to run, check for possible stall conditions and new

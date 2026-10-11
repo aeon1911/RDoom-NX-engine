@@ -152,6 +152,7 @@ static void profile_defaults(Profile *p)
 {
 	memset(p, 0, sizeof(*p));
 	p->preset = PRESET_BALANCED;
+	p->renderer = 1;
 	p->scale = 100;
 	p->fpslimit = 30;
 	p->glthread = 0;
@@ -246,6 +247,7 @@ static void load_ini(void)
 			if (val[0] && p->nmods < MAX_MODS && data_find_mod(p, val) < 0) strncpy(p->mods[p->nmods++], val, MAX_PATH_LEN - 1);
 		}
 		else if (!strcasecmp(key, "Preset")) p->preset = atoi(val);
+		else if (!strcasecmp(key, "Renderer")) p->renderer = atoi(val);
 		else if (!strcasecmp(key, "Boost")) p->boost = 0;	// option removed (no clock changes)
 		else if (!strcasecmp(key, "NoLoadScreen")) p->noloadscreen = atoi(val);
 		else if (!strcasecmp(key, "RenderScale")) p->scale = atoi(val);
@@ -276,7 +278,7 @@ int data_save(void)
 	mkdir(BASEDIR, 0755);
 	FILE *f = fopen(BASEDIR "/launcher.ini.tmp", "w");
 	if (!f) return -1;
-	fprintf(f, "; UZDoom Switch launcher profiles\n\n[@Launcher]\nVersion = 7\n");
+	fprintf(f, "; UZDoom Switch launcher profiles\n\n[@Launcher]\nVersion = 10\n");
 	if (cur_profile >= 0 && cur_profile < nprofiles) fprintf(f, "LastProfile = %s\n", profiles[cur_profile].name);
 	fprintf(f, "PlayCounter = %d\n\n", play_counter);
 	for (int i = 0; i < nprofiles; i++)
@@ -286,6 +288,7 @@ int data_save(void)
 		fprintf(f, "IWAD = %s\n", p->iwad);
 		for (int m = 0; m < p->nmods; m++) fprintf(f, "Mod = %s\n", p->mods[m]);
 		fprintf(f, "Preset = %d\n", p->preset);
+		fprintf(f, "Renderer = %d\n", p->renderer);
 		fprintf(f, "Boost = %d\n", p->boost);
 		if (p->noloadscreen) fprintf(f, "NoLoadScreen = %d\n", p->noloadscreen);
 		fprintf(f, "RenderScale = %d\n", p->scale);
@@ -359,12 +362,19 @@ int data_init(void)
 			if (profiles[i].fpslimit == 0) profiles[i].fpslimit = 30;
 		}
 	}
+	// uz5.0.3-nx4.13: Vulkan is the renderer. The black screen was the
+	// loading screen leaving the window format at 0.
+	if (ini_version < 10)
+	{
+		for (int i = 0; i < nprofiles; i++) profiles[i].renderer = 1;
+	}
 
 	// drop entries without a game file (keep custom ones so that nothing gets lost)
 	for (int i = 0; i < nprofiles; i++)
 	{
 		profiles[i].present = iwad_present(profiles[i].iwad);
 		if (profiles[i].preset < 0 || profiles[i].preset >= PRESET_COUNT) profiles[i].preset = PRESET_BALANCED;
+		profiles[i].renderer = profiles[i].renderer ? 1 : 0;
 		if (profiles[i].scale < 50 || profiles[i].scale > 100) profiles[i].scale = 100;
 		if (profiles[i].fpslimit != 30 && profiles[i].fpslimit != 35 && profiles[i].fpslimit != 40) profiles[i].fpslimit = 0;
 		profiles[i].glthread = profiles[i].glthread ? 1 : 0;
@@ -498,6 +508,8 @@ void data_launch(int index)
 	if (p->noloadscreen) arg("-nxnoload ");
 
 	arg("%s", engine_presets[p->preset]);
+	// 1 = Vulkan, 2 = OpenGL ES. A failed Vulkan init falls back to GLES.
+	arg("+set vid_preferbackend %d ", p->renderer ? 1 : 2);
 	arg("+set vid_scalefactor %d.%02d ", p->scale / 100, p->scale % 100);
 	// 30 = VSync on every other refresh of the 60 Hz screen: a real lock with
 	// even frame pacing. 35/40 are plain caps without VSync.
@@ -515,6 +527,30 @@ void data_launch(int index)
 	if (p->extra[0]) arg("%s ", p->extra);
 
 	snprintf(exe, sizeof(exe), "%s/%s/gzdoom.nro", plat_cwd(), BASEDIR);
-	snprintf(full, sizeof(full), "%s %s", exe, args);
+	// Atmosphere's hbloader keeps the next program's command line in a 2048-byte
+	// buffer, and libnx copies into it with strcpy. A long mod list used to spill
+	// past that buffer into the path of gzdoom.nro, so the engine never opened
+	// and the screen stayed black. The arguments go to a file; the line itself
+	// stays short. The path is absolute so it does not depend on the engine's
+	// working directory.
+	char argpath[768];
+	snprintf(argpath, sizeof(argpath), "%s/%s", plat_cwd(), TMPDIR);
+	mkdir(BASEDIR, 0755);
+	mkdir(argpath, 0755);
+	snprintf(argpath, sizeof(argpath), "%s/%s/nxargs.txt", plat_cwd(), TMPDIR);
+	int wrote = 0;
+	FILE *rf = fopen(argpath, "wb");
+	if (rf)
+	{
+		size_t len = strlen(args);
+		wrote = (fwrite(args, 1, len, rf) == len);
+		fputc('\n', rf);
+		fclose(rf);
+	}
+	// Never put the mod list back on the command line. hbloader only has 2048
+	// bytes and libnx copies with strcpy; the overflow corrupts the path of
+	// gzdoom.nro and the console stays black because the engine never starts.
+	if (wrote) snprintf(full, sizeof(full), "%s @%s", exe, argpath);
+	else snprintf(full, sizeof(full), "%s", exe);
 	plat_set_next_load(exe, full);
 }

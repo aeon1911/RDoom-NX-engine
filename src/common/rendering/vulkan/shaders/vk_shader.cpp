@@ -351,7 +351,11 @@ static const char *shaderBindings = R"(
 	#define uDetailParms data[uDataIndex].uDetailParms
 	#define uNpotEmulation data[uDataIndex].uNpotEmulation
 
-	#define SUPPORTS_SHADOWMAPS
+)"
+#ifndef __SWITCH__
+"#define SUPPORTS_SHADOWMAPS\n"
+#endif
+R"(
 	#define VULKAN_COORDINATE_SYSTEM
 	#define HAS_UNIFORM_VERTEX_DATA
 

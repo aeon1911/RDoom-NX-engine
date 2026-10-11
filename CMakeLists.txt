@@ -73,7 +73,7 @@ if( NINTENDO_SWITCH )
 	# unless we just do this
 	set( CMAKE_CXX_EXTENSIONS ON )
 	# used in both gzdoom and launcher
-	set( SWITCH_APP_VERSION "uz5.0.3-nx4.1" )
+	set( SWITCH_APP_VERSION "uz5.0.3-nx4.13" )
 endif()
 
 # Recursive function to place PK3 archive source files into a hierarchy of source file in the IDE
@@ -300,8 +300,12 @@ endif()
 option (NO_DISCORDRPC "Disable Discord RPC support" OFF)
 
 if( NINTENDO_SWITCH )
-	set( HAVE_VULKAN OFF )
 	set( NO_DISCORDRPC ON )
+	# Vulkan is optional. The launcher selects it; if the device fails to
+	# come up, the existing GLES renderer still starts the game.
+	if( HAVE_VULKAN )
+		add_compile_definitions( VK_USE_PLATFORM_VI_NN=1 )
+	endif()
 endif()
 
 if( MSVC )

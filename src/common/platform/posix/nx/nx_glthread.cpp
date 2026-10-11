@@ -61,28 +61,66 @@ template<class T> static T &At(void *base, size_t off) { return *(T *)((char *)b
 
 // The driver thread is created with the default (small) pthread stack; Mesa
 // compiles shaders on it, so give it a large one.
-// SDL's own threads (the audio thread, which also runs OpenAL's mixer) are
-// created by libnx on core 0 with the lowest priority: there they can only mix
-// sound while the game's thread waits, and whenever the game needs the audio
-// lock that the preempted mixer holds, the game has to wait for it. They go to
-// core 2 instead (above the asset worker), away from the game.
-CVAR(Bool, nx_audio_core2, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+//
+// SDL's audio thread also runs the OpenAL mixer. libnx starts it on core 0 at
+// the lowest priority, next to the game thread (core 0, priority 0x2C). The
+// mixer can then run only while the game waits, and every time the game needs
+// the lock the mixer is holding the frame stalls. Brutal Doom hits that on
+// almost every tic. Core 2 is the fix, but the loading screen draws on core 2
+// until NXLS_Stop joins it: moving the mixer there any earlier starves that
+// screen and Jogar stays black. Threads created during the load stay on core 0
+// and are moved once the screen thread is gone. Threads created later go
+// straight to core 2.
+
 extern "C" int SDL_SYS_CreateThread(void *thread);
+
 struct NXThreadStart { void *(*fn)(void *); void *arg; };
+static Mutex gAudioLock;
+static Handle gAudioHandles[16];
+static int gAudioCount;
+static bool gAudioCoreOpen;
+
+static void PinAudioHandle(Handle h)
+{
+	if (!h) return;
+	svcSetThreadCoreMask(h, 2, 1u << 2);
+	svcSetThreadPriority(h, 0x2D);
+}
+
 static void *NXSDLThreadEntry(void *p)
 {
 	NXThreadStart t = *(NXThreadStart *)p;
 	free(p);
-	svcSetThreadCoreMask(CUR_THREAD_HANDLE, 2, 1ULL << 2);
-	svcSetThreadPriority(CUR_THREAD_HANDLE, 0x2D);
+	Handle h = threadGetCurHandle();
+	bool pin = false;
+	mutexLock(&gAudioLock);
+	if (gAudioCoreOpen) pin = true;
+	else if (gAudioCount < 16) gAudioHandles[gAudioCount++] = h;
+	mutexUnlock(&gAudioLock);
+	if (pin) PinAudioHandle(h);
 	return t.fn(t.arg);
+}
+
+void NX_AudioAfterLoadScreen()
+{
+	if (gAudioCoreOpen) return;
+	Handle local[16];
+	int n = 0;
+	mutexLock(&gAudioLock);
+	gAudioCoreOpen = true;
+	n = gAudioCount;
+	if (n > 16) n = 16;
+	for (int i = 0; i < n; i++) local[i] = gAudioHandles[i];
+	gAudioCount = 0;
+	mutexUnlock(&gAudioLock);
+	for (int i = 0; i < n; i++) PinAudioHandle(local[i]);
 }
 
 extern "C" int __wrap_pthread_create(pthread_t *thread, const pthread_attr_t *attr, void *(*fn)(void *), void *arg)
 {
 	uintptr_t ra = (uintptr_t)__builtin_return_address(0);
 	uintptr_t sdl = (uintptr_t)&SDL_SYS_CreateThread;
-	if (nx_audio_core2 && ra >= sdl && ra < sdl + 0x100)
+	if (ra >= sdl && ra < sdl + 0x100)
 	{
 		auto t = (NXThreadStart *)malloc(sizeof(NXThreadStart));
 		if (t)
@@ -197,7 +235,19 @@ static bool gWatchdogStarted;
 void NX_GLCrumb(const char *what)
 {
 	if (gEnabled && threadGetCurHandle() == gWorkerHandle) { gCrumbWorker = what; gCrumbWorkerTime = armGetSystemTick(); }
-	else { gCrumbMain = what; gCrumbMainTime = armGetSystemTick(); }
+	else { gCrumbMain = what ? what : "?"; gCrumbMainTime = armGetSystemTick(); }
+}
+
+void NX_Phase(const char *what)
+{
+	NX_GLCrumb(what);
+	static const char *last = nullptr;
+	if (what == last) return;
+	last = what;
+	FILE *f = fopen("phase.log", "a");
+	if (!f) return;
+	fprintf(f, "%llu %s\n", (unsigned long long)gCrumbMainTime, what ? what : "?");
+	fclose(f);
 }
 
 extern "C" Result __wrap_nwindowDequeueBuffer(NWindow *nw, s32 *out_slot, NvMultiFence *out_fence)
@@ -319,21 +369,39 @@ static void *WatchdogThread(void *)
 	uint32_t last = nx_heartbeat;
 	int still = 0;
 	int reported = 0;
+	bool seenFrame = false;
 	for (;;)
 	{
 		svcSleepThread(1000000000ULL);
 		uint32_t hb = nx_heartbeat;
-		if (hb != last) { last = hb; still = 0; reported = 0; continue; }
+		if (hb != last)
+		{
+			last = hb;
+			still = 0;
+			reported = 0;
+			seenFrame = true;
+			continue;
+		}
+		// The homebrew loader and the engine mod screen present nothing through
+		// this counter. Only time the gap after a real frame has been shown,
+		// which is the opening picture that stops taking buttons.
+		if (!seenFrame) continue;
 		still++;
-		// loading a level with a big mod can take a while: only report long stalls,
-		// and again every 30 s while it lasts
-		if (still >= 25 && (reported == 0 || still - reported >= 30))
+		if (still >= 8 && (reported == 0 || still - reported >= 30))
 		{
 			WriteHangLog(still);
 			reported = still;
 		}
 	}
 	return nullptr;
+}
+
+static void StartWatchdog();
+
+void NX_StartHangWatch()
+{
+	if (!gMainHandle) gMainHandle = threadGetCurHandle();
+	StartWatchdog();
 }
 
 static void StartWatchdog()

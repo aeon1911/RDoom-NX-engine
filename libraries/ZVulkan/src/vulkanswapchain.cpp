@@ -50,10 +50,13 @@ void VulkanSwapChain::Create(int width, int height, int imageCount, bool vsync, 
 				.Image(image.get(), format.format)
 				.DebugName("SwapchainImageView")
 				.Create(device);
-			images.push_back(std::move(image));
-			views.push_back(std::move(view));
+		images.push_back(std::move(image));
+		views.push_back(std::move(view));
 		}
 	}
+
+	if (!swapchain)
+		VulkanError("Could not create the Vulkan swapchain");
 }
 
 void VulkanSwapChain::SelectFormat(const VulkanSurfaceCapabilities& caps, bool hdr)
@@ -227,7 +230,14 @@ int VulkanSwapChain::AcquireImage(VulkanSemaphore* semaphore, VulkanFence* fence
 		return -1;
 
 	uint32_t imageIndex;
-	VkResult result = vkAcquireNextImageKHR(device->device, swapchain, 1'000'000'000, semaphore ? semaphore->semaphore : VK_NULL_HANDLE, fence ? fence->fence : VK_NULL_HANDLE, &imageIndex);
+	// On Horizon a one-second timeout gives up before the first buffer is
+	// released, so nothing is ever queued and the screen stays black.
+#if defined(__SWITCH__)
+	const uint64_t acquireTimeout = UINT64_MAX;
+#else
+	const uint64_t acquireTimeout = 1'000'000'000;
+#endif
+	VkResult result = vkAcquireNextImageKHR(device->device, swapchain, acquireTimeout, semaphore ? semaphore->semaphore : VK_NULL_HANDLE, fence ? fence->fence : VK_NULL_HANDLE, &imageIndex);
 	if (result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
 	{
 		return imageIndex;

@@ -324,6 +324,7 @@ IHardwareTexture *OpenGLFrameBuffer::CreateHardwareTexture(int numchannels)
 void OpenGLFrameBuffer::PrecacheMaterial(FMaterial *mat, int translation)
 {
 	if (mat->Source()->GetUseType() == ETextureType::SWCanvas) return;
+	NX_PushSkipCpuMipmaps();
 
 	int numLayers = mat->NumLayers();
 	MaterialLayerInfo* layer;
@@ -337,6 +338,7 @@ void OpenGLFrameBuffer::PrecacheMaterial(FMaterial *mat, int translation)
 			systex->BindOrCreate(layer->layerTexture, i, CLAMP_NONE, 0, layer->scaleFlags);
 		}
 	}
+	NX_PopSkipCpuMipmaps();
 	// unbind everything.
 	FHardwareTexture::UnbindAll();
 	gl_RenderState.ClearLastMaterial();

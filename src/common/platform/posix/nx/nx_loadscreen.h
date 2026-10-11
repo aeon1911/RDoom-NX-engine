@@ -17,6 +17,9 @@ void NXLS_Start(int argc, char **argv);
 // releases the framebuffer; must be called before SDL creates its window
 void NXLS_Stop();
 bool NXLS_Active();
+// true after this process registered buffers on the default NWindow.
+// Stays true after NXLS_Stop so Vulkan can restore the scanout format.
+bool NXLS_ClaimedDisplay();
 // feed engine console output (used to track the startup stages)
 void NXLS_OnPrint(const char *text);
 // texture manager / startup window progress

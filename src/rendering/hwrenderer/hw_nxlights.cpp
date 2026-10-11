@@ -22,6 +22,7 @@
 #include "i_time.h"
 #include "tarray.h"
 #include <algorithm>
+#include <cmath>
 #include "nx_perf.h"
 #include "nx_governor.h"
 
@@ -37,6 +38,13 @@ static uint64_t nxLastTime = 0;
 
 void NXLights_Select(FLevelLocals *Level, const DVector3 &viewpos)
 {
+	// Title, intermission and both loading screens use the pre-4.1 light path.
+	if (!NXInPlay())
+	{
+		nxLightBudget = false;
+		return;
+	}
+
 	// the frame rate stabilizer can tighten both limits while frames are late
 	const int maxlights = NXGov_LightMax(nx_dynlight_max);
 	const double maxdist = NXGov_LightDist(nx_dynlight_dist);
@@ -67,7 +75,10 @@ void NXLights_Select(FLevelLocals *Level, const DVector3 &viewpos)
 	static TArray<Cand> cands;
 	cands.Clear();
 
-	for (auto light = Level->lights; light; light = light->next)
+	// a corrupt or cyclic light list must not hang the frame (intro maps of
+	// heavy packs walk this list on the first rendered view)
+	int seen = 0;
+	for (auto light = Level->lights; light && seen < 20000; light = light->next, seen++)
 	{
 		if (!light->IsActive())
 		{
@@ -79,6 +90,12 @@ void NXLights_Select(FLevelLocals *Level, const DVector3 &viewpos)
 		if (radius <= 0) continue;
 		// distance from the camera to the edge of the light's sphere (0 = inside it)
 		double d = (light->Pos - viewpos).Length() - radius;
+		if (!std::isfinite(d))
+		{
+			light->nxFade = 0.f;
+			light->nxCut = false;
+			continue;
+		}
 		if (d < 0) d = 0;
 		if (maxdist > 0 && d >= maxdist)
 		{

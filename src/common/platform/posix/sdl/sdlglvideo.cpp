@@ -28,10 +28,15 @@
 #include "nx_perf.h"
 #ifdef __SWITCH__
 #include "common/platform/posix/nx/nx_glthread.h"
+#include "common/platform/posix/nx/nx_loadscreen.h"
+#include "gamestate.h"
+#include <switch.h>
 #endif
 
 #ifdef HAVE_VULKAN
+#if !defined(__SWITCH__)
 #include <SDL2/SDL_vulkan.h>
+#endif
 #include <zvulkan/vulkanbuilders.h>
 #include <zvulkan/vulkandevice.h>
 #include <zvulkan/vulkaninstance.h>
@@ -323,22 +328,62 @@ private:
 void I_GetVulkanDrawableSize(int *width, int *height)
 {
 	assert(Priv::vulkanEnabled);
+#if defined(__SWITCH__)
+	if (width) *width = 1280;
+	if (height) *height = 720;
+#else
 	assert(Priv::window != nullptr);
 	SDL_Vulkan_GetDrawableSize(Priv::window, width, height);
+#endif
 }
 
 bool I_GetVulkanPlatformExtensions(unsigned int *count, const char **names)
 {
 	assert(Priv::vulkanEnabled);
+#if defined(__SWITCH__)
+	static const char *exts[] = {
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_NN_VI_SURFACE_EXTENSION_NAME
+	};
+	if (names)
+	{
+		names[0] = exts[0];
+		names[1] = exts[1];
+	}
+	*count = 2;
+	return true;
+#else
 	assert(Priv::window != nullptr);
 	return SDL_Vulkan_GetInstanceExtensions(Priv::window, count, names) == SDL_TRUE;
+#endif
 }
 
 bool I_CreateVulkanSurface(VkInstance instance, VkSurfaceKHR *surface)
 {
 	assert(Priv::vulkanEnabled);
+#if defined(__SWITCH__)
+	NWindow *win = nwindowGetDefault();
+	// The loading screen registered its own buffers, then framebufferClose
+	// disconnects the window and stores format 0. nwindowConfigureBuffer
+	// only copies the scanout format when this field is still the creation
+	// sentinel. With format 0 the compositor never shows the Vulkan image.
+	// Do this only when that screen owned the window. Releasing buffers on
+	// a window we never claimed drops the layer and the present never shows.
+	if (NXLS_ClaimedDisplay())
+	{
+		nwindowReleaseBuffers(win);
+		win->format = ~0u;
+		win->usage = 0;
+		nwindowSetDimensions(win, 1280, 720);
+	}
+	VkViSurfaceCreateInfoNN createInfo = {};
+	createInfo.sType = VK_STRUCTURE_TYPE_VI_SURFACE_CREATE_INFO_NN;
+	createInfo.window = (void*)win;
+	return vkCreateViSurfaceNN(instance, &createInfo, nullptr, surface) == VK_SUCCESS;
+#else
 	assert(Priv::window != nullptr);
 	return SDL_Vulkan_CreateSurface(Priv::window, instance, surface) == SDL_TRUE;
+#endif
 }
 #endif
 
@@ -362,12 +407,18 @@ SDLVideo::SDLVideo ()
 
 	if (Priv::vulkanEnabled)
 	{
+#if defined(__SWITCH__)
+		// SDL2 on Horizon only creates EGL windows. Vulkan draws on the
+		// default NWindow, so this path does not open an SDL window.
+		Priv::updateDisplayInfo();
+#else
 		Priv::CreateWindow(SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN | (vid_fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 
 		if (Priv::window == nullptr)
 		{
 			Priv::vulkanEnabled = false;
 		}
+#endif
 	}
 #endif
 }
@@ -426,6 +477,9 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 		}
 		catch (CVulkanError const &error)
 		{
+#ifdef __SWITCH__
+			I_FatalError("Vulkan:\n%s\n", error.what());
+#else
 			if (Priv::window != nullptr)
 			{
 				Priv::DestroyWindow();
@@ -433,6 +487,7 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 
 			Printf(TEXTCOLOR_RED "Initialization of Vulkan failed: %s\n", error.what());
 			Priv::vulkanEnabled = false;
+#endif
 		}
 	}
 #endif
@@ -471,7 +526,11 @@ int SystemBaseFrameBuffer::GetClientWidth()
 
 #ifdef HAVE_VULKAN
 	assert(Priv::vulkanEnabled);
+#if defined(__SWITCH__)
+	width = 1280;
+#else
 	SDL_Vulkan_GetDrawableSize(Priv::window, &width, nullptr);
+#endif
 #endif
 
 	return width;
@@ -483,7 +542,11 @@ int SystemBaseFrameBuffer::GetClientHeight()
 
 #ifdef HAVE_VULKAN
 	assert(Priv::vulkanEnabled);
+#if defined(__SWITCH__)
+	height = 720;
+#else
 	SDL_Vulkan_GetDrawableSize(Priv::window, nullptr, &height);
+#endif
 #endif
 
 	return height;
@@ -491,11 +554,15 @@ int SystemBaseFrameBuffer::GetClientHeight()
 
 bool SystemBaseFrameBuffer::IsFullscreen ()
 {
+#if defined(__SWITCH__)
+	if (Priv::window == nullptr) return true;
+#endif
 	return (SDL_GetWindowFlags(Priv::window) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
 }
 
 void SystemBaseFrameBuffer::ToggleFullscreen(bool yes)
 {
+	if (Priv::window == nullptr) return;
 	SDL_ShowWindow(Priv::window);
 	SDL_SetWindowFullscreen(Priv::window, yes ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
 	if ( !yes )
@@ -526,7 +593,7 @@ void SystemBaseFrameBuffer::SetWindowSize(int w, int h)
 	{
 		vid_fullscreen = false;
 	}
-	else
+	else if (Priv::window != nullptr)
 	{
 		win_maximized = false;
 		SDL_SetWindowSize(Priv::window, w, h);
@@ -577,6 +644,9 @@ SystemGLFrameBuffer::SystemGLFrameBuffer(void *hMonitor, bool fullscreen)
 	for ( ; glvers[glveridx][0] > 0; ++glveridx)
 	{
 		Priv::SetupPixelFormat(0, glvers[glveridx]);
+#ifdef __SWITCH__
+		nwindowReleaseBuffers(nwindowGetDefault());
+#endif
 		Priv::CreateWindow(SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN | (fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0));
 
 		if (Priv::window == nullptr)
@@ -627,6 +697,18 @@ int SystemGLFrameBuffer::GetClientHeight()
 	return height;
 }
 
+#ifdef __SWITCH__
+// Brutal's opening is a title map, not a level. Interval 2 waits inside the
+// Switch display driver and never returns, so the controller is never read.
+// A real level keeps the interval chosen in the launcher.
+static int NXPresentInterval(bool vsync)
+{
+	if (!vsync) return 0;
+	if (gamestate != GS_LEVEL) return 1;
+	return clamp<int>(nx_swapinterval, 1, 4);
+}
+#endif
+
 void SystemGLFrameBuffer::SetVSync( bool vsync )
 {
 #if defined (__APPLE__)
@@ -636,8 +718,7 @@ void SystemGLFrameBuffer::SetVSync( bool vsync )
 #ifdef __SWITCH__
 	// the panel is 60 Hz: interval 2 presents every other refresh = a real 30 fps lock
 	NX_GLThreadFinish();
-	int interval = vsync ? clamp<int>(nx_swapinterval, 1, 4) : 0;
-	SDL_GL_SetSwapInterval(interval);
+	SDL_GL_SetSwapInterval(NXPresentInterval(vsync));
 #else
 	if (vsync)
 	{
@@ -657,6 +738,13 @@ void SystemGLFrameBuffer::SwapBuffers()
 #ifdef __SWITCH__
 	// everything recorded for this frame must reach the driver before the swap
 	NX_GLThreadFinish();
+	static int applied = -1;
+	int interval = NXPresentInterval(vid_vsync);
+	if (interval != applied)
+	{
+		SDL_GL_SetSwapInterval(interval);
+		applied = interval;
+	}
 #endif
 	NXPERF_SCOPE(swap_ms, nullptr);
 	SDL_GL_SwapWindow(Priv::window);

@@ -41,6 +41,10 @@ struct NXPerfCounters
 extern NXPerfCounters nxperf;
 double NXPerf_NowMS();
 void NXPerf_EndFrame();
+// last completed frame, the simulation time inside it, and the average cost of one tic (0 if none ran)
+double NXPerf_LastFrameMS();
+double NXPerf_LastSimMS();
+double NXPerf_LastTicMS();
 // set by the game code: writes a breakdown (e.g. which actor classes cost the most) into the summary
 extern void (*NXPerf_SummaryHook)(FILE *f);
 // true for the one game tic per second whose thinkers get profiled by class
@@ -56,3 +60,8 @@ struct NXPerfScope
 };
 
 #define NXPERF_SCOPE(msfield, countfield) NXPerfScope nxperf_scope_(&nxperf.msfield, countfield)
+
+// True only while a map is being played. The title screen and both loading
+// screens stay on the pre-4.1 render path; the light budget and CPU mipmaps
+// turn on after the player is actually in a level.
+bool NXInPlay();

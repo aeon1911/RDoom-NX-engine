@@ -51,7 +51,12 @@ void VulkanDevice::CreateAllocator()
 	allocinfo.physicalDevice = PhysicalDevice.Device;
 	allocinfo.device = device;
 	allocinfo.instance = Instance->Instance;
+#if defined(__SWITCH__)
+	// 64 MB blocks exhaust the 4 GB heap once mods upload light and texture data.
+	allocinfo.preferredLargeHeapBlockSize = 16 * 1024 * 1024;
+#else
 	allocinfo.preferredLargeHeapBlockSize = 64 * 1024 * 1024;
+#endif
 	if (vmaCreateAllocator(&allocinfo, &allocator) != VK_SUCCESS)
 		VulkanError("Unable to create allocator");
 }
@@ -93,7 +98,14 @@ void VulkanDevice::CreateDevice()
 	deviceFeatures2.features = EnabledFeatures.Features;
 
 	void** next = const_cast<void**>(&deviceCreateInfo.pNext);
-	if (SupportsExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME))
+#if defined(__SWITCH__)
+	// NVK on Horizon rejects a 1.1 feature chain on a 1.0 instance, and
+	// pEnabledFeatures must stay null once pNext is used.
+	const bool chainFeatures = Instance->ApiVersion >= VK_API_VERSION_1_1;
+#else
+	const bool chainFeatures = SupportsExtension(VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME);
+#endif
+	if (chainFeatures)
 	{
 		*next = &deviceFeatures2;
 		next = &deviceFeatures2.pNext;
@@ -103,26 +115,27 @@ void VulkanDevice::CreateDevice()
 		deviceCreateInfo.pEnabledFeatures = &deviceFeatures2.features;
 	}
 
-	if (SupportsExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME))
+	if (chainFeatures && SupportsExtension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME))
 	{
 		*next = &EnabledFeatures.BufferDeviceAddress;
 		next = &EnabledFeatures.BufferDeviceAddress.pNext;
 	}
-	if (SupportsExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME))
+	if (chainFeatures && SupportsExtension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME))
 	{
 		*next = &EnabledFeatures.AccelerationStructure;
 		next = &EnabledFeatures.AccelerationStructure.pNext;
 	}
-	if (SupportsExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME))
+	if (chainFeatures && SupportsExtension(VK_KHR_RAY_QUERY_EXTENSION_NAME))
 	{
 		*next = &EnabledFeatures.RayQuery;
 		next = &EnabledFeatures.RayQuery.pNext;
 	}
-	if (SupportsExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME))
+	if (chainFeatures && SupportsExtension(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME))
 	{
 		*next = &EnabledFeatures.DescriptorIndexing;
 		next = &EnabledFeatures.DescriptorIndexing.pNext;
 	}
+	*next = nullptr;
 
 	VkResult result = vkCreateDevice(PhysicalDevice.Device, &deviceCreateInfo, nullptr, &device);
 	CheckVulkanError(result, "Could not create vulkan device");

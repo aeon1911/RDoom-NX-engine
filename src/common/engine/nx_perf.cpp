@@ -12,7 +12,12 @@
 #include "c_cvars.h"
 #include "i_time.h"
 #include "fs_files.h"
-#include "c_cvars.h"
+#include "gamestate.h"
+
+bool NXInPlay()
+{
+	return gamestate == GS_LEVEL;
+}
 
 // 0 = off, 1 = log frames slower than nx_perfthreshold, 2 = log every frame
 #ifdef __SWITCH__
@@ -25,6 +30,9 @@ CVAR(Int, nx_perfthreshold, 90, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 NXPerfCounters nxperf;
 
 static double lastFrame = -1;
+static double lastFrameMS = 0;
+static double lastSimMS = 0;
+static double lastTicMS = 0;
 static double startTime = -1;
 static int linesWritten = 0;
 static FILE *perfFile = nullptr;
@@ -65,7 +73,7 @@ static void WriteSettings(FILE *f)
 		"vid_vsync", "vid_maxfps", "cl_capfps", "vid_scalefactor", "nx_effect_cull", "nx_effect_minalpha", "r_actorspriteshadowdist", "vid_preferbackend", "gl_multithread", "r_dynlights", "gles_max_lights_per_surface",
 		"r_actorspriteshadow", "gl_texture_filter", "gl_texture_filter_anisotropic", "r_maxparticles", "cl_maxdecals",
 		"snd_channels", "snd_efx", "snd_samplerate", "gles_async_textures", "snd_asyncload", "nx_workers",
-		"gl_sort_textures", "nx_dynlight_max", "nx_dynlight_dist", "nx_stabilizer", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_lateswap", nullptr };
+		"gl_sort_textures", "nx_dynlight_max", "nx_dynlight_dist", "nx_stabilizer", "nx_glthread", "nx_glthread_core", "nx_swapinterval", "r_ticstability", "nx_lateswap", "nx_simcap", nullptr };
 	fprintf(f, "# settings:");
 	for (int i = 0; names[i]; i++)
 	{
@@ -81,12 +89,30 @@ double NXPerf_NowMS()
 	return I_nsTime() / 1000000.0;
 }
 
+double NXPerf_LastFrameMS()
+{
+	return lastFrameMS;
+}
+
+double NXPerf_LastSimMS()
+{
+	return lastSimMS;
+}
+
+double NXPerf_LastTicMS()
+{
+	return lastTicMS;
+}
+
 void NXPerf_EndFrame()
 {
 	double now = NXPerf_NowMS();
 	if (startTime < 0) startTime = now;
 	double frame = lastFrame < 0 ? 0 : now - lastFrame;
 	lastFrame = now;
+	lastFrameMS = frame;
+	lastSimMS = nxperf.tic_ms;
+	lastTicMS = (nxperf.tics > 0) ? nxperf.tic_ms / nxperf.tics : 0;
 
 	uint64_t hits, misses, bytes;
 	FileSys::GetBlockCacheStats(hits, misses, bytes);

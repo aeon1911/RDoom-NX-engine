@@ -37,12 +37,21 @@
 #include <switch.h>
 #include "nx_loadscreen.h"
 
+void NX_AudioAfterLoadScreen();
+void NX_StartHangWatch();
+
 #ifdef _DEBUG
 static int nxlink_sock = -1;
 #endif
 
 extern "C" void userAppInit(void)
 {
+	FILE *f = fopen("boot.log", "w");
+	if (f)
+	{
+		fputs("uz5.0.3-nx4.13 userAppInit\n", f);
+		fclose(f);
+	}
 	socketInitializeDefault();
 #ifdef _DEBUG
 	nxlink_sock = nxlinkStdio();
@@ -125,6 +134,8 @@ void I_NXShowFatalError(const char *title, const char *message)
 #include <string.h>
 #include <exception>
 #include <typeinfo>
+#include <string>
+#include <vector>
 
 extern "C" {
 	extern char __start__;
@@ -290,10 +301,86 @@ static void NXAtExit()
 	NXLS_SetBoost(false);
 }
 
+// The launcher passes @temp/nxargs.txt instead of the full command line.
+// hbloader only has 2048 bytes for that line; envSetNextLoad copies it with
+// strcpy, and anything longer spills into the path of the next .nro. The
+// engine then never starts and the console stays on a black screen.
+static bool NXIsSpace(char c)
+{
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static void NXAppendArgs(std::vector<std::string> &out, const std::string &data)
+{
+	const char *s = data.c_str();
+	while (*s)
+	{
+		while (*s && NXIsSpace(*s)) s++;
+		if (!*s) break;
+		std::string tok;
+		if (*s == '"')
+		{
+			s++;
+			while (*s && *s != '"') tok.push_back(*s++);
+			if (*s == '"') s++;
+		}
+		else
+		{
+			while (*s && !NXIsSpace(*s)) tok.push_back(*s++);
+		}
+		out.push_back(std::move(tok));
+	}
+}
+
+static void NXExpandResponseFiles(int &argc, char **&argv)
+{
+	bool any = false;
+	for (int i = 1; i < argc; i++)
+		if (argv[i] && argv[i][0] == '@' && argv[i][1]) any = true;
+	if (!any) return;
+
+	std::vector<std::string> out;
+	out.push_back(argv[0] ? argv[0] : "");
+	for (int i = 1; i < argc; i++)
+	{
+		const char *a = argv[i];
+		if (!a) continue;
+		if (a[0] != '@' || !a[1]) { out.push_back(a); continue; }
+		FILE *f = fopen(a + 1, "rb");
+		if (!f) { out.push_back(a); continue; }
+		std::string data;
+		char buf[4096];
+		size_t n;
+		while ((n = fread(buf, 1, sizeof(buf), f)) > 0) data.append(buf, n);
+		fclose(f);
+		NXAppendArgs(out, data);
+	}
+
+	static std::vector<std::string> keep;
+	static std::vector<char *> ptrs;
+	keep = std::move(out);
+	ptrs.clear();
+	ptrs.reserve(keep.size() + 1);
+	for (auto &s : keep) ptrs.push_back(const_cast<char *>(s.c_str()));
+	ptrs.push_back(nullptr);
+	argc = (int)keep.size();
+	argv = ptrs.data();
+}
+
 int I_NXRunWithBigStack(int (*fn)(int, char **), int argc, char **argv)
 {
+	FILE *bf = fopen("boot.log", "a");
+	if (bf)
+	{
+		fprintf(bf, "main argc=%d\n", argc);
+		for (int i = 0; i < argc && i < 6; i++)
+			fprintf(bf, " arg %s\n", argv[i] ? argv[i] : "(null)");
+		fclose(bf);
+	}
 	std::set_terminate(I_NXTerminate);
 	FindModuleRange();
+	NX_StartHangWatch();
+	NXExpandResponseFiles(argc, argv);
 
 	// switches that are only meant for this port and must not reach the engine
 	bool boost = false, loadscreen = true;
@@ -311,6 +398,7 @@ int I_NXRunWithBigStack(int (*fn)(int, char **), int argc, char **argv)
 	atexit(NXAtExit);
 	if (boost) NXLS_SetBoost(true);
 	if (loadscreen) NXLS_Start(argc, argv);
+	else NX_AudioAfterLoadScreen();
 
 	NXMainArgs args = { fn, argc, argv, 0 };
 	pthread_attr_t attr;

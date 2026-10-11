@@ -182,7 +182,11 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 
 	// If we queued more than 64 MB of data already: wait until the uploads finish before continuing
 	fb->GetCommands()->TransferDeleteList->Add(std::move(stagingBuffer));
+#if defined(__SWITCH__)
+	if (fb->GetCommands()->TransferDeleteList->TotalSize > 16 * 1024 * 1024)
+#else
 	if (fb->GetCommands()->TransferDeleteList->TotalSize > 64 * 1024 * 1024)
+#endif
 		fb->GetCommands()->WaitForCommands(false, true);
 }
 

@@ -68,8 +68,9 @@ enum EHWCaps
 };
 
 #if defined(__SWITCH__) && !defined(VID_BACKEND)
-// Switch: OpenGL ES backend by default (lighter on the Tegra X1); desktop OpenGL also works
-#define VID_BACKEND 2
+// Switch: Vulkan. The loading screen must restore the window format first,
+// or the compositor keeps a black scanout.
+#define VID_BACKEND 1
 #endif
 
 enum {

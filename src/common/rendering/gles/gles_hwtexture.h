@@ -103,4 +103,10 @@ public:
 	int numChannels() { return glTextureBytes; }
 };
 
+// While a level is precaching, or while finished pictures are uploaded in a
+// batch, mipmaps stay on the nx3.7 path. Building them for every texture
+// before the next frame is what left the WadFusion title on screen.
+void NX_PushSkipCpuMipmaps();
+void NX_PopSkipCpuMipmaps();
+
 }

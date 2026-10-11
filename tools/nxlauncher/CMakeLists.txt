@@ -1,4 +1,4 @@
-cmake_minimum_required( VERSION 3.1.0 )
+cmake_minimum_required( VERSION 3.5 )
 
 if( NINTENDO_SWITCH )
 	set(APP_NAME "UZDoom Launcher")
@@ -15,5 +15,5 @@ if( NINTENDO_SWITCH )
 	add_custom_command( TARGET gzdoom_launcher POST_BUILD
 		COMMAND nacptool --create "${APP_NAME}" "${APP_AUTHOR}" "${APP_VERSION}" "gzdoom_launcher.nacp"
 		COMMAND ${CMAKE_STRIP} -o gzdoom_launcher_stripped.elf $<TARGET_FILE:gzdoom_launcher>
-		COMMAND elf2nro gzdoom_launcher_stripped.elf "${CMAKE_BINARY_DIR}/gzdoom_launcher.nro" --icon="${APP_ICON}" --nacp=gzdoom_launcher.nacp --romfsdir="${APP_RESDIR}" )
+		COMMAND elf2nro gzdoom_launcher_stripped.elf ${CMAKE_BINARY_DIR}/gzdoom_launcher.nro --icon=${APP_ICON} --nacp=gzdoom_launcher.nacp --romfsdir=${APP_RESDIR} )
 endif()

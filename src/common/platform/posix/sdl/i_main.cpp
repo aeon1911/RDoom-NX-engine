@@ -230,7 +230,11 @@ int main (int argc, char **argv)
 	Args = new FArgs(argc, argv);
 
 #ifdef __SWITCH__
-	// HACK: force GL4.3 since that's the max available on Switch
+	// HACK: force GL4.3 since that's the max available on Switch.
+	// The file collector skips argument 0. If a loader starts us with no
+	// argv, -glversion would sit in that slot and "4.3" would be loaded as a wad.
+	if (Args->NumArgs() == 0)
+		Args->AppendRawArg("uzdoom");
 	Args->AppendRawArg("-glversion");
 	Args->AppendRawArg("4.3");
 #endif // __SWITCH__

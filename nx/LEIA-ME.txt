@@ -1,7 +1,107 @@
-UZDoom 5.0.3 para Nintendo Switch  (build "uz5.0.3-nx4.1")
+UZDoom 5.0.3 para Nintendo Switch  (build "uz5.0.3-nx4.13")
 =====================================================================
 Port, launcher e otimizações para Switch: Renan  -  Telegram @aeon1911
 =====================================================================
+
+nx4.13 - Vulkan é o renderizador
+--------------------------------
+A tela preta depois do loading era a janela da tela de loading: ao fechar,
+o formato da imagem ficava 0 e o compositor não mostrava o quadro do
+Vulkan. O formato volta ao valor inicial antes do Vulkan registrar a
+imagem. O jogo abre em Vulkan. O rodapé tem que mostrar uz5.0.3-nx4.13.
+
+nx4.12 - a tela preta depois do loading
+----------------------------------------
+A nx4.11 abria em Vulkan e soltava a tela de loading antes de mostrar a
+imagem, então o console ficava preto. O padrão voltou para OpenGL ES.
+Vulkan continua em OPÇÕES → Vídeo. Se ele não conseguir abrir a imagem,
+o jogo segue em OpenGL ES. O rodapé tem que mostrar uz5.0.3-nx4.12.
+
+nx4.11 - Vulkan como opção de vídeo
+------------------------------------
+O motor agora também desenha com Vulkan (driver Mesa NVK do Tegra X1),
+no mesmo UZDoom 5.0.3. Brutal Doom, Lexicon e WadFusion continuam neste
+motor. Em OPÇÕES, "Vídeo" escolhe Vulkan ou OpenGL ES. O padrão novo é
+Vulkan. Se o Vulkan não abrir, o jogo volta sozinho para OpenGL ES.
+O rodapé tem que mostrar uz5.0.3-nx4.11.
+
+nx4.10 - a luta não empilha mais vários tics antes de desenhar
+--------------------------------------------------------------
+No Brutal Doom um tic custa vários milissegundos. Quando o quadro
+atrasava, o motor rodava os 4 a 6 tics atrasados antes de mostrar a
+imagem, e a tela ficava parada (no perf.log isso aparece como um quadro
+de ~150 ms com dezenas de milissegundos só em thinkers). Agora, numa
+fase, em um jogador, cada quadro roda um tic, ou dois se o quadro
+anterior coube em 30 fps. Rede e demo continuam iguais. Para voltar ao
+comportamento antigo: +set nx_simcap 0
+O rodapé tem que mostrar uz5.0.3-nx4.10.
+
+nx4.9 - a abertura do Brutal volta a ler o controle
+----------------------------------------------------
+Essa tela de fogo é o mapa TITLEMAP do Brutal22test6. O jogo mostrava
+um quadro e ficava preso na espera da tela de 30 fps, então o botão
+nunca era lido. A abertura apresenta a cada atualização da tela, como
+a build que jogava. Dentro de uma fase o limite de 30 fps continua.
+O rodapé tem que mostrar uz5.0.3-nx4.9.
+
+nx4.8 - a intro do WadFusion volta a sair da cidade em chamas
+--------------------------------------------------------------
+Essa tela é um mapa (wf_newgame), não o title 2D. A 4.1 passou a montar
+o mipmap de todas as texturas enquanto ela estava na tela, e o quadro
+não voltava. O lote de texturas voltou ao caminho da build que jogava.
+Sprite que aparece no meio da fase continua com mipmap na CPU.
+O rodapé tem que mostrar uz5.0.3-nx4.8.
+
+nx4.7 - o title usa o mesmo caminho da build que abria
+-------------------------------------------------------
+A comparação com a nx3.7 (a última que entrava nesse pack) mostra que o
+laço do title não foi reescrito. O que a 4.1 acrescentou e ainda rodava
+ali era o mipmap na CPU, o corte de luzes e o cache de upload de luz,
+inclusive enquanto os mods terminavam de carregar. Isso fica desligado
+no title e nas duas telas de loading. Dentro do mapa continua ligado.
+O rodapé tem que mostrar uz5.0.3-nx4.7.
+
+nx4.6 - a intro do WadFusion não fica mais parada no title
+----------------------------------------------------------
+Brutal Doom + Lexicon + WadFusion mostravam o title do Doom e não saíam
+dali. O mapa seguinte precacheia todas as texturas, e o mipmap na CPU
+nessas imagens grandes travava com o title ainda na tela. Sprite pequeno
+continua na CPU; title, céu e parede grande voltam ao caminho antigo.
+O rodapé tem que mostrar uz5.0.3-nx4.6.
+
+nx4.5 - o mixer volta ao outro núcleo depois da tela de carregamento
+---------------------------------------------------------------------
+A nx4.4 deixou o mixer no mesmo núcleo do jogo para a tela de carregamento
+abrir. Em mod com muito som (Brutal Doom) o jogo esperava o mixer a todo
+momento e travava na intro ou no meio da fase. O mixer continua fora desse
+núcleo enquanto a tela de carregamento desenha, e passa para o outro núcleo
+quando ela termina. Luzes, estabilizador e mipmaps continuam. O rodapé tem
+que mostrar uz5.0.3-nx4.5.
+
+nx4.4 - o mixer de áudio saiu do núcleo da tela de carregamento
+----------------------------------------------------------------
+A nx4.1 passou o mixer para o mesmo núcleo dessa tela, com prioridade
+maior, e o primeiro quadro nunca era desenhado. A tela voltou ao jeito
+da build que abria, e o mixer ficou onde estava. O rodapé tem que mostrar
+uz5.0.3-nx4.4. Se ainda ficar preta, em sdmc:/switch/gzdoom/boot.log a
+primeira linha diz se o gzdoom.nro chegou a abrir.
+
+nx4.3 - a tela de carregamento abre na hora do Jogar
+----------------------------------------------------
+A nx4.2 ainda ficava preta: o primeiro quadro era desenhado num núcleo que
+o mixer de áudio (e, na prioridade nova, o driver de vídeo) não soltava.
+Agora esse quadro é desenhado na thread principal, antes do jogo começar,
+e a animação fica no outro núcleo. O rodapé do launcher tem que mostrar
+uz5.0.3-nx4.3. A pasta da nx4.2 não serve.
+
+nx4.2 - a tela de carregamento voltou a abrir
+---------------------------------------------
+Na nx4.1, ao apertar Jogar a tela ficava preta e a tela de carregamento
+da homebrew não aparecia. O mixer de áudio tinha passado a ocupar o
+mesmo núcleo dessa tela, com prioridade maior, e uma lista grande de
+mods podia estourar o limite de linha de comando do Atmosphere (2048
+bytes), corrompendo o caminho do gzdoom.nro. Os dois foram corrigidos.
+As opções de desempenho da nx4.1 continuam iguais.
 
 nx4.1 - estabilidade em cenas pesadas
 -------------------------------------
@@ -179,6 +279,7 @@ Port para Switch, launcher, tela de carregamento e otimizações:
 Renan  -  Telegram @aeon1911
 
 Baseado em: UZDoom/GZDoom/ZDoom teams (GPLv3), fgsfds (port de Switch e
-launcher original), Thorhax (GZDoom-NX-2026), devkitPro (devkitA64, libnx).
+launcher original), Thorhax (GZDoom-NX-2026), NaGa e danfromtico
+(Mesa NVK / Vulkan no Horizon), devkitPro (devkitA64, libnx).
 Fontes Bebas Neue e Poppins: SIL Open Font License (dentro do launcher).
 Código-fonte (GPLv3): repositório do projeto no GitHub.

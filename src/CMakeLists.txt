@@ -1327,9 +1327,17 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 if( NINTENDO_SWITCH )
 	list( REMOVE_ITEM PROJECT_LIBRARIES dl )
 	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL glapi drm_nouveau )
+	if( HAVE_VULKAN )
+		# Mesa NVK is loaderless: libvulkan.a is the driver. expat/zstd/elf/z
+		# are the archives the Switch Vulkan SDK exports next to it.
+		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} vulkan expat zstd z )
+	endif()
 	# static ZMusic pulls in libsndfile (+ codecs) and mpg123
 	set( ZMUSIC_LIBRARIES ${ZMUSIC_LIBRARIES} sndfile FLAC opus vorbisenc vorbis ogg mpg123 m )
-	link_directories( $ENV{DEVKITPRO}/portlibs/switch/lib )
+	# nx/deps/libvulkan.a is the Horizon NVK built with -mtp=soft.
+	# Mesa 26.2.4 in portlibs uses tpidr_el0 (libnx never sets that
+	# register) and must not be linked ahead of this archive.
+	link_directories( ${CMAKE_SOURCE_DIR}/nx/deps/switch $ENV{DEVKITPRO}/portlibs/switch/lib )
 endif()
 
 add_executable( zdoom MACOSX_BUNDLE ${GAME_SOURCES} )
@@ -1384,6 +1392,11 @@ endif()
 if( NINTENDO_SWITCH )
 	# everything is static on Switch, so let the linker resolve the circular deps
 	target_link_libraries( zdoom -Wl,--start-group ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash nx -Wl,--end-group )
+	if( HAVE_VULKAN )
+		# Mesa and newlib both define a few libc helpers. The ICD entry points
+		# must stay linked even though volk does not load them on Switch.
+		target_link_options( zdoom PRIVATE "-Wl,--allow-multiple-definition" "-Wl,-u,vk_icdGetInstanceProcAddr" "-Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion" "-pthread" )
+	endif()
 	# Mesa glthread support (nx_glthread.cpp): count driver-thread syncs, big stack for the driver thread
 	target_link_options( zdoom PRIVATE "-Wl,--wrap=_mesa_glthread_finish_before" "-Wl,--wrap=pthread_create" "-Wl,--wrap=nwindowDequeueBuffer" "-Wl,--wrap=nwindowQueueBuffer" "-Wl,--wrap=_util_queue_fence_wait" )
 else()

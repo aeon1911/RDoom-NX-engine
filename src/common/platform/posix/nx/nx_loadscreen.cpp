@@ -32,6 +32,7 @@
 
 #ifdef __SWITCH__
 #include <switch.h>
+void NX_AudioAfterLoadScreen();
 #else
 #include <thread>
 #include <chrono>
@@ -363,6 +364,7 @@ uint32_t gHist[MS_COUNT];	// previous run
 std::string gHistKey;
 
 std::atomic<bool> gActive{ false };
+bool gClaimed = false;
 std::atomic<bool> gQuit{ false };
 bool gBoost = false;
 
@@ -711,6 +713,16 @@ Framebuffer gFB;
 Thread gThread;
 bool gFBOpen = false;
 bool gThreadOpen = false;
+std::atomic<int> gFrames{ 0 };
+
+void PresentOnce(float dt)
+{
+	u32 stride = 0;
+	uint32_t *buf = (uint32_t *)framebufferBegin(&gFB, &stride);
+	if (buf) RenderFrame(buf, stride / 4, dt);
+	framebufferEnd(&gFB);
+	gFrames.fetch_add(1);
+}
 
 void DrawThread(void *)
 {
@@ -720,10 +732,7 @@ void DrawThread(void *)
 		uint64_t now = NowMS();
 		float dt = std::min((now - last) / 1000.f, 0.1f);
 		last = now;
-		u32 stride = 0;
-		uint32_t *buf = (uint32_t *)framebufferBegin(&gFB, &stride);
-		if (buf) RenderFrame(buf, stride / 4, dt);
-		framebufferEnd(&gFB);
+		PresentOnce(dt);
 		// ~30 fps is plenty and leaves the CPU alone
 		uint64_t spent = NowMS() - now;
 		if (spent < 33) svcSleepThread((33 - spent) * 1000000ull);
@@ -788,6 +797,11 @@ void SetMilestone(int m)
 bool NXLS_Active()
 {
 	return gActive.load();
+}
+
+bool NXLS_ClaimedDisplay()
+{
+	return gClaimed;
 }
 
 // The port never changes the console's CPU/GPU clocks (not even the
@@ -857,21 +871,32 @@ void NXLS_Start(int argc, char **argv)
 
 #ifdef __SWITCH__
 	if (R_FAILED(framebufferCreate(&gFB, nwindowGetDefault(), SW, SH, PIXEL_FORMAT_RGBA_8888, 2)))
+	{
+		NX_AudioAfterLoadScreen();
 		return;
+	}
 	gFBOpen = true;
+	// framebufferClose leaves the window format at 0. Vulkan must see that
+	// this process owned the scanout, or the compositor stays black.
+	gClaimed = true;
 	if (R_FAILED(framebufferMakeLinear(&gFB)))
 	{
 		framebufferClose(&gFB);
 		gFBOpen = false;
+		NX_AudioAfterLoadScreen();
 		return;
 	}
 	gQuit = false;
-	// core 2: the engine's main thread runs on core 0
+	gFrames = 0;
+	// Core 2, priority 0x30: this is the setup that actually put the screen
+	// on the display. The audio mixer stays off this core until NXLS_Stop
+	// has joined this thread (see nx_glthread.cpp).
 	if (R_FAILED(threadCreate(&gThread, DrawThread, nullptr, nullptr, 0x40000, 0x30, 2)) &&
 		R_FAILED(threadCreate(&gThread, DrawThread, nullptr, nullptr, 0x40000, 0x30, -2)))
 	{
 		framebufferClose(&gFB);
 		gFBOpen = false;
+		NX_AudioAfterLoadScreen();
 		return;
 	}
 	gThreadOpen = true;
@@ -900,6 +925,9 @@ void NXLS_Stop()
 		framebufferClose(&gFB);
 		gFBOpen = false;
 	}
+	// The mixer stays on the game core through Brutal's title map. Moving it
+	// here made that opening present once and never return, so the button
+	// was never read. It moves when a real level starts.
 #endif
 	SaveHistory();
 	gBackground.clear();

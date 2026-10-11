@@ -790,7 +790,7 @@ static void Mods_Update(void)
 
 enum Opts
 {
-	OPT_PRESET, OPT_SCALE, OPT_FPSLIMIT, OPT_STABILIZER, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
+	OPT_PRESET, OPT_RENDERER, OPT_SCALE, OPT_FPSLIMIT, OPT_STABILIZER, OPT_GLTHREAD, OPT_FPS, OPT_LOADSCREEN, OPT_SKILL, OPT_MONSTERS, OPT_WARP, OPT_CLASS,
 	OPT_LOADGAME, OPT_LOG, OPT_EXTRA, OPT_RENAME, OPT_IWAD, OPT_COUNT
 };
 
@@ -805,6 +805,12 @@ static void OptInfo(Profile *p, int o, const char **label, const char **desc, ch
 	switch (o)
 	{
 	case OPT_PRESET: *label = "Desempenho"; *desc = preset_desc[p->preset]; snprintf(value, vlen, "%s", preset_names[p->preset]); break;
+	case OPT_RENDERER:
+		*label = "Vídeo";
+		*desc = p->renderer ? "Vulkan (NVK no Tegra X1). É o renderizador desta build."
+			: "OpenGL ES. O jogo abre em Vulkan; esta opção só vale se você escolher.";
+		snprintf(value, vlen, "%s", p->renderer ? "Vulkan" : "OpenGL ES");
+		break;
 	case OPT_SCALE: *label = "Resolução de renderização"; *desc = "Menos resolução = mais FPS em cenas pesadas (100% = 720p)."; snprintf(value, vlen, "%d%%", p->scale); break;
 	case OPT_FPSLIMIT:
 		*label = "Limite de FPS";
@@ -924,6 +930,7 @@ static void Options_Update(void)
 		switch (opt_sel)
 		{
 		case OPT_PRESET: p->preset = (p->preset + dir + PRESET_COUNT) % PRESET_COUNT; changed = 1; break;
+		case OPT_RENDERER: p->renderer = !p->renderer; changed = 1; break;
 		case OPT_SCALE:
 		{
 			int i = 0;

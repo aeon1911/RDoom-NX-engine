@@ -368,11 +368,18 @@ bool FGLRenderState::ApplyShader()
 
 		auto &last = activeShader->cur->nxLastLights;
 		const unsigned nfloats = unsigned(totalVectors) * 4;
-		if (last.Size() != nfloats || memcmp(last.Data(), lightPtr, nfloats * sizeof(float)))
+		// Only reuse the previous upload during play. On the title screen this
+		// cache is not used, same as before 4.1.
+		const bool same = NXInPlay() && last.Size() == nfloats &&
+			(nfloats == 0 || (lightPtr && memcmp(last.Data(), lightPtr, nfloats * sizeof(float)) == 0));
+		if (!same)
 		{
 			glUniform4fv(activeShader->cur->lights_index, totalVectors, lightPtr);
-			last.Resize(nfloats);
-			if (nfloats) memcpy(last.Data(), lightPtr, nfloats * sizeof(float));
+			if (NXInPlay())
+			{
+				last.Resize(nfloats);
+				if (nfloats && lightPtr) memcpy(last.Data(), lightPtr, nfloats * sizeof(float));
+			}
 			nxperf.lightuploads++;
 		}
 		else nxperf.lightskips++;

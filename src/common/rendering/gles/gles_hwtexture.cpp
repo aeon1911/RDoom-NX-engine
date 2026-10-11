@@ -73,6 +73,22 @@ unsigned int FHardwareTexture::lastbound[FHardwareTexture::MAX_TEXTURES];
 
 CVAR(Bool, gles_cpu_mipmaps, true, CVAR_GLOBALCONFIG)
 
+static int nxSkipCpuMips;
+
+void NX_PushSkipCpuMipmaps() { nxSkipCpuMips++; }
+void NX_PopSkipCpuMipmaps() { if (nxSkipCpuMips > 0) nxSkipCpuMips--; }
+
+// Sprites are small powers of two: a box filter on the CPU is cheaper than
+// Mesa's blitter. Large and non-power-of-two images (the WadFusion title
+// picture, skies, hi-res walls) stay on glGenerateMipmap. Running the CPU
+// path on those while the next map was precached left the title picture
+// on screen and never came back.
+static bool NXCpuMipmapSize(int w, int h)
+{
+	if (w < 1 || h < 1 || w > 512 || h > 512) return false;
+	return (w & (w - 1)) == 0 && (h & (h - 1)) == 0;
+}
+
 static void NXDownsample(const unsigned char *src, int sw, int sh, unsigned char *dst, int dw, int dh, int bpp)
 {
 	// 2x2 box filter (1x2 or 2x1 once one side is down to 1 pixel)
@@ -221,7 +237,11 @@ unsigned int FHardwareTexture::CreateTexture(unsigned char * buffer, int w, int 
 
 	if (mipmap && TexFilter[gl_texture_filter].mipmapping)
 	{
-		if (gles_cpu_mipmaps && buffer && (glTextureBytes == 1 || glTextureBytes == 4))
+		// One sprite at a time, during play, is cheap on the CPU. A precache or a
+		// background batch of a whole mod is not: that runs while the WadFusion
+		// title is already on screen and never comes back. Those batches use
+		// the same path as nx3.7.
+		if (nxSkipCpuMips == 0 && gles_cpu_mipmaps && buffer && (glTextureBytes == 1 || glTextureBytes == 4) && NXCpuMipmapSize(rw, rh))
 			NXUploadMipmaps(buffer, rw, rh, glTextureBytes, texformat, sourcetype);
 		else
 			glGenerateMipmap(GL_TEXTURE_2D);

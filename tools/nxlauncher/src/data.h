@@ -22,6 +22,7 @@ typedef struct
 	int nmods;
 	char mods[MAX_MODS][MAX_PATH_LEN];	// in load order (.deh/.bex go to -deh)
 	int preset;
+	int renderer;	// 1 = Vulkan, 0 = OpenGL ES
 	int boost;
 	int noloadscreen;
 	int scale;	// render scale in percent

@@ -108,6 +108,7 @@
 #include "nx_perf.h"
 #ifdef __SWITCH__
 #include "common/platform/posix/nx/nx_loadscreen.h"
+#include "common/platform/posix/nx/nx_glthread.h"
 #endif
 #include "swrenderer/r_swcolormaps.h"
 #include "teaminfo.h"
@@ -1606,22 +1607,41 @@ void D_DoomLoop ()
 			}
 			I_SetFrameTime();
 
+#ifdef __SWITCH__
+			if (gamestate == GS_LEVEL)
+				NX_AudioAfterLoadScreen();
+			NX_Phase("tic");
+#endif
 			TryRunTics (); // will run at least one tic
 			// Update display, next frame, with current state.
 			{
 				NXPERF_SCOPE(input_ms, nullptr);
+#ifdef __SWITCH__
+				NX_Phase("input");
+#endif
 				I_StartTic ();
 				D_ProcessEvents();
 			}
 			{
 				NXPERF_SCOPE(display_ms, nullptr);
+#ifdef __SWITCH__
+				NX_Phase(gamestate == GS_DEMOSCREEN ? "display title" :
+					gamestate == GS_LEVEL ? "display level" :
+					gamestate == GS_TITLELEVEL ? "display titlelevel" : "display");
+#endif
 				D_Display ();
 			}
 			{
 				NXPERF_SCOPE(music_ms, nullptr);
+#ifdef __SWITCH__
+				NX_Phase("music");
+#endif
 				S_UpdateMusic();
 			}
 			NXPerf_EndFrame();
+#ifdef __SWITCH__
+			NX_Phase("frame done");
+#endif
 
 			if (gameloop_abort)
 			{
