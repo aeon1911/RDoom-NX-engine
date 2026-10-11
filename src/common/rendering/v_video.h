@@ -271,7 +271,8 @@ public:
 	virtual void SetSceneRenderTarget(bool useSSAO) {}
 	virtual void UpdateShadowMap() {}
 	virtual void WaitForCommands(bool finish) {}
-	virtual void WaitForPendingFrame() {}	// Vulkan frame overlap: the GPU is done with the last presented frame
+	virtual void WaitForPendingFrame() {}
+	virtual bool AllowSSAO() { return true; }	// false when the depth buffer cannot be sampled (Switch Vulkan without ZCULL)	// Vulkan frame overlap: the GPU is done with the last presented frame
 	virtual void SetSaveBuffers(bool yes) {}
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }

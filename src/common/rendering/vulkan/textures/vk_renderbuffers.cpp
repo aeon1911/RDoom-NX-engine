@@ -29,6 +29,19 @@
 #ifdef __SWITCH__
 // GPU-fault workaround switch: use D32_SFLOAT_S8_UINT for every depth buffer
 CVAR(Bool, rd_vk_depth32, false, 0)
+// ZCULL on the Switch's GM20B hangs the GPU (fifo idle timeout) on the first
+// draw that uses a ZCULL-enabled depth buffer (LOAD_ZCULL ... STORE_ZCULL,
+// hardware test 2026-10-11). NVK enables ZCULL only for depth images whose
+// usage is within {transfer, sampled, depth attachment, input attachment}, so
+// declaring them TRANSIENT_ATTACHMENT (attachment-only) turns it off. Nothing
+// samples these depth buffers except SSAO, which is disabled while this is off.
+CVAR(Bool, rd_vk_zcull, false, 0)
+VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage)
+{
+	if (rd_vk_zcull)
+		return usage;
+	return (usage & ~(VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)) | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT;
+}
 #endif
 
 #include "vulkan/renderer/vk_postprocess.h"
@@ -103,7 +116,11 @@ void VkRenderBuffers::CreatePipelineDepthStencil(int width, int height)
 	ImageBuilder builder;
 	builder.Size(width, height);
 	builder.Format(PipelineDepthStencilFormat);
+	#ifdef __SWITCH__
+	builder.Usage(RDoom_DepthUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+#else
 	builder.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+#endif
 	if (!builder.IsFormatSupported(fb->device.get()))
 	{
 		PipelineDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
@@ -203,7 +220,8 @@ void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCou
 		SceneDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
 	{
 		FString d;
-		d.Format("%s, %dx%d, %d sample(s)", SceneDepthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8" : "D24_UNORM_S8", width, height, (int)samples);
+		d.Format("%s, %dx%d, %d sample(s), ZCULL %s", SceneDepthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8" : "D24_UNORM_S8", width, height, (int)samples,
+			rd_vk_zcull ? "allowed (rd_vk_zcull 1)" : "off (transient depth attachments)");
 		RDoom_SessionSet("vulkan_scene_depth", d.GetChars());
 	}
 #endif
@@ -211,7 +229,11 @@ void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCou
 	builder.Size(width, height);
 	builder.Samples(samples);
 	builder.Format(SceneDepthStencilFormat);
+	#ifdef __SWITCH__
+	builder.Usage(RDoom_DepthUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+#else
 	builder.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+#endif
 	if (!builder.IsFormatSupported(fb->device.get()))
 	{
 		SceneDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;

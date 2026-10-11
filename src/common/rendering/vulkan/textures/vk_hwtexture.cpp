@@ -36,6 +36,9 @@
 #include "vulkan/renderer/vk_postprocess.h"
 #include "vulkan/shaders/vk_shader.h"
 #include "vk_hwtexture.h"
+#ifdef __SWITCH__
+VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage);
+#endif
 #include "vk_nxupload.h"
 
 VkHardwareTexture::VkHardwareTexture(VulkanRenderDevice* fb, int numchannels) : fb(fb)
@@ -86,7 +89,11 @@ VkTextureImage *VkHardwareTexture::GetDepthStencil(FTexture *tex)
 			.Size(w, h)
 			.Samples(VK_SAMPLE_COUNT_1_BIT)
 			.Format(format)
+#ifdef __SWITCH__
+			.Usage(RDoom_DepthUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT))  // no ZCULL, see vk_renderbuffers.cpp
+#else
 			.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT)
+#endif
 			.DebugName("VkHardwareTexture.DepthStencil")
 			.Create(fb->device.get());
 

@@ -501,6 +501,14 @@ void VulkanRenderDevice::WaitForPendingFrame()
 	mCommands->WaitForPendingFrame();
 }
 
+#ifdef __SWITCH__
+EXTERN_CVAR(Bool, rd_vk_zcull)
+bool VulkanRenderDevice::AllowSSAO()
+{
+	return rd_vk_zcull;  // depth buffers are attachment-only (no ZCULL) otherwise
+}
+#endif
+
 unsigned int VulkanRenderDevice::GetLightBufferBlockSize() const
 {
 	return mLights->GetBlockSize();

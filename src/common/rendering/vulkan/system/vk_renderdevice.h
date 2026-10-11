@@ -113,6 +113,9 @@ public:
 
 	void WaitForCommands(bool finish) override;
 	void WaitForPendingFrame() override;
+#ifdef __SWITCH__
+	bool AllowSSAO() override;
+#endif
 
 	bool RaytracingEnabled();
 
