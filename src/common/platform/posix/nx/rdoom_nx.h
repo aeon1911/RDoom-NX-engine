@@ -26,8 +26,13 @@ int RDoom_ClearShaderCaches();
 void RDoom_VulkanDeviceLost(const char *what);
 
 // Automatic GPU workarounds: each session that follows a lost GPU moves one step
-// further (0 = none, 1 = draw trace); the step is kept while it works and
+// further (0 = none, 1 = dynamic lights off, 2 = draw trace); the step is kept while it works and
 // starts over with a new build. Applied by the video start-up (sdlglvideo.cpp).
-#define RDOOM_GPU_STEPS 1
+#define RDOOM_GPU_STEPS 2
 bool RDoom_PreviousSessionLostGpu();
 int RDoom_GpuWorkaroundStep();
+
+// CVAR overrides set during video start-up, applied again after the command
+// line's +set commands (which run later) so they take effect.
+void RDoom_AddLateCvar(const char *name, const char *value);
+void RDoom_ApplyLateCvars();

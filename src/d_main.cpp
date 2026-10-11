@@ -4018,6 +4018,14 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 	gamestate = GS_FULLCONSOLE;
 	Net_Initialize();
 	C_RunDelayedCommands();
+#ifdef __SWITCH__
+	{
+		// diagnostics overrides (rdoom_debug.txt / GPU workaround steps) win over
+		// the launcher's +set commands, which run just above
+		extern void RDoom_ApplyLateCvars();
+		RDoom_ApplyLateCvars();
+	}
+#endif
 	gamestate = GS_STARTUP;
 
 	// enable custom invulnerability map here

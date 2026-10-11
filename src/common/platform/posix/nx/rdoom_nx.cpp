@@ -377,3 +377,30 @@ void RDoom_SessionLog(const char *category, const char *message)
 {
 	RLOG_I(category, "%s", message);
 }
+
+// ---------------------------------------------------------------------------
+// late CVAR overrides (see rdoom_nx.h)
+// ---------------------------------------------------------------------------
+
+static std::vector<std::pair<std::string, std::string>> g_lateCvars;
+
+void RDoom_AddLateCvar(const char *name, const char *value)
+{
+	for (auto &kv : g_lateCvars)
+		if (kv.first == name)
+		{
+			kv.second = value;
+			return;
+		}
+	g_lateCvars.push_back({ name, value });
+}
+
+void RDoom_ApplyLateCvars()
+{
+	extern void RDoom_SetCvarString(const char *name, const char *value);
+	for (auto &kv : g_lateCvars)
+	{
+		RDoom_SetCvarString(kv.first.c_str(), kv.second.c_str());
+		RLOG_I("session", "late override %s=%s", kv.first.c_str(), kv.second.c_str());
+	}
+}

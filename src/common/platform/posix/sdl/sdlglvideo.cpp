@@ -476,11 +476,15 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 		applied += "NVK_SWITCH_PERF_LOG=1";
 		auto setcvar = [&](const char *name, const char *value) {
 			if (FBaseCVar *cv = FindCVar(name, nullptr)) { UCVarValue v; v.String = value; cv->SetGenericRep(v, CVAR_String); }
+			RDoom_AddLateCvar(name, value);
 			applied.AppendFormat(" %s=%s", name, value);
 		};
-		// fans and depth bias are worked around by default now (hardware tests
-		// 2026-10-11); a further loss goes straight to trace mode
-		if (step >= 1)
+		// fans and depth bias are worked around by default (hardware tests
+		// 2026-10-11); the remaining hangs line up with the first surface lit by
+		// a dynamic light (shader light loop reading the light SSBO)
+		if (step == 1)
+			setcvar("r_dynlights", "0");
+		if (step >= 2)
 		{
 			setenv("NVK_DEBUG", "push_sync", 1);
 			applied += " NVK_DEBUG=push_sync (trace mode)";
@@ -514,6 +518,7 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 				UCVarValue v;
 				v.String = value;
 				cv->SetGenericRep(v, CVAR_String);
+				RDoom_AddLateCvar(line, value);
 				applied.AppendFormat("%s%s=%s", applied.IsEmpty() ? "" : " ", line, value);
 			}
 			else
@@ -900,3 +905,15 @@ void I_SetWindowTitle(const char* caption)
 		SDL_SetWindowTitle(Priv::window, default_caption.GetChars());
 	}
 }
+
+#ifdef __SWITCH__
+void RDoom_SetCvarString(const char *name, const char *value)
+{
+	if (FBaseCVar *cv = FindCVar(name, nullptr))
+	{
+		UCVarValue v;
+		v.String = value;
+		cv->SetGenericRep(v, CVAR_String);
+	}
+}
+#endif

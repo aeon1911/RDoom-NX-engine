@@ -76,7 +76,7 @@ int rd_vk_drawlog_started = 0;
 extern int nx_levelframes;
 void RDoom_Crumb(const char *what);
 
-static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, int index, int count)
+static void LogDraw(const VkPipelineKey &key, FMaterial *mat, int lightIndex, const char *kind, int index, int count)
 {
 	static int logged;
 	// 3D draws (depth or stencil in use), also during the screen wipe into a level
@@ -92,14 +92,14 @@ static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, 
 	logged++;
 	extern int rd_vk_drawlog_started;
 	rd_vk_drawlog_started = 1;
-	char buf[220];
-	snprintf(buf, sizeof(buf), "draw %d (level frame %d): %s first %d count %d | vfmt %d effect %d special %d alphatest %d drawtype %d layers %d depth %d/%d stencil %d | %s",
+	char buf[300];
+	snprintf(buf, sizeof(buf), "draw %d (level frame %d): %s first %d count %d | vfmt %d effect %d special %d alphatest %d drawtype %d layers %d depth %d/%d stencil %d light %d | %s",
 		logged, nx_levelframes, kind, index, count, key.VertexFormat, key.EffectState, key.SpecialEffect, key.AlphaTest, key.DrawType,
-		key.NumTextureLayers, key.DepthTest, key.DepthWrite, key.StencilTest,
+		key.NumTextureLayers, key.DepthTest, key.DepthWrite, key.StencilTest, lightIndex,
 		mat && mat->Source() ? mat->Source()->GetName().GetChars() : "(no texture)");
 	RDoom_Crumb(buf);
 }
-#define RD_LOGDRAW(kind, index, count) LogDraw(mPipelineKey, mMaterial.mMaterial, kind, index, count)
+#define RD_LOGDRAW(kind, index, count) LogDraw(mPipelineKey, mMaterial.mMaterial, mLightIndex, kind, index, count)
 #else
 #define RD_LOGDRAW(kind, index, count)
 #endif
