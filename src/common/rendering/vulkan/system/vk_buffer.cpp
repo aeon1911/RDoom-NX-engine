@@ -60,7 +60,7 @@ void VkBufferManager::FlushPersistentBuffers()
 #if defined(__SWITCH__)
 	for (auto buf : Buffers)
 	{
-		if (buf && buf->mPersistent && buf->Memory() && buf->Size() > 0)
+		if (buf && buf->mPersistent && buf->Memory() && buf->Size() > 0 && buf->NeedsCacheClean())
 			armDCacheClean(buf->Memory(), buf->Size());
 	}
 #endif

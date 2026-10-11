@@ -60,7 +60,8 @@ FLightBuffer::FLightBuffer(int pipelineNbr):
 		if (mem)
 		{
 			memset(mem, 0, mByteSize);
-			armDCacheClean(mem, mByteSize);
+			if (mBufferPipeline[n]->NeedsCacheClean())
+				armDCacheClean(mem, mByteSize);
 		}
 #endif
 	}
@@ -126,7 +127,8 @@ int FLightBuffer::UploadLights(FDynLightData &data)
 		memcpy(&copyptr[4 + 4*size0], &data.arrays[1][0], size1 * ELEMENT_SIZE);
 		memcpy(&copyptr[4 + 4*(size0 + size1)], &data.arrays[2][0], size2 * ELEMENT_SIZE);
 #if defined(__SWITCH__)
-		armDCacheClean(copyptr, totalsize * ELEMENT_SIZE);
+		if (mBuffer->NeedsCacheClean())
+			armDCacheClean(copyptr, totalsize * ELEMENT_SIZE);
 #endif
 		return thisindex;
 	}

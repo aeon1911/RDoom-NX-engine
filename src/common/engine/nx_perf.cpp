@@ -45,8 +45,8 @@ void (*NXPerf_SummaryHook)(FILE *f) = nullptr;
 // totals over the current summary window (all frames, not only the slow ones)
 static struct
 {
-	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present;
-	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel;
+	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending;
+	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits;
 } win;
 
 #ifdef __SWITCH__
@@ -122,7 +122,8 @@ void NXPerf_EndFrame()
 
 	{
 		extern int nx_levelframes;
-		NXGovernor_Frame(frame, nxperf.swap_ms + nxperf.gpuwait_ms + nxperf.wait_ms, nx_levelframes > 3);
+		// Vulkan waits for the display/GPU inside acquire, present and the frame-start wait
+		NXGovernor_Frame(frame, nxperf.swap_ms + nxperf.gpuwait_ms + nxperf.wait_ms + nxperf.vkacquire_ms + nxperf.vkpresent_ms + nxperf.vkpending_ms, nx_levelframes > 3);
 	}
 
 	if (nx_perflog > 0 && linesWritten < 3000)
@@ -158,6 +159,12 @@ void NXPerf_EndFrame()
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
 		win.frameend += nxperf.frameend_ms;
+		win.vksubmits += nxperf.vksubmits;
+		win.vksubmit += nxperf.vksubmit_ms;
+		win.vkclean += nxperf.vkclean_ms;
+		win.vkacquire += nxperf.vkacquire_ms;
+		win.vkpresent += nxperf.vkpresent_ms;
+		win.vkpending += nxperf.vkpending_ms;
 		win.draws += nxperf.draws;
 		win.lightuploads += nxperf.lightuploads;
 		win.lightskips += nxperf.lightskips;
@@ -212,6 +219,12 @@ void NXPerf_EndFrame()
 					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
 				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d)\n",
 					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel);
+			}
+			if (frames > 0 && win.vksubmits > 0)
+			{
+				double n = frames;
+				fprintf(perfFile, "#   vulkan: submits %.1f (%.2f ms in vkQueueSubmit) | cache clean %.2f | acquire %.2f | present %.2f | fence wait at frame end %.2f | wait for previous frame at frame start %.2f (ms per frame)\n",
+					win.vksubmits / n, win.vksubmit / n, win.vkclean / n, win.vkacquire / n, win.vkpresent / n, win.gpuwait / n, win.vkpending / n);
 			}
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);

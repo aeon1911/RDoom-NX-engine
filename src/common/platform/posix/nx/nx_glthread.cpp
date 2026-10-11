@@ -239,11 +239,20 @@ void NX_GLCrumb(const char *what)
 void NX_Phase(const char *what)
 {
 	NX_GLCrumb(what);
-	static const char *last = nullptr;
-	if (what == last) return;
-	last = what;
-	FILE *f = fopen("phase.log", "a");
+	// phase.log records the first time each phase is reached (start-up order,
+	// where a hang began). The main loop cycles through the same phases every
+	// frame: writing those used to cost five SD-card open/append/close per
+	// frame and grew the file without limit. The hang report still names the
+	// current phase through the crumb above.
+	static const char *seen[64];
+	static int numSeen = 0, lines = 0;
+	for (int i = 0; i < numSeen; i++)
+		if (seen[i] == what) return;
+	if (numSeen < 64) seen[numSeen++] = what;
+	if (lines >= 200) return;
+	FILE *f = fopen("phase.log", lines == 0 ? "w" : "a");
 	if (!f) return;
+	lines++;
 	fprintf(f, "%llu %s\n", (unsigned long long)gCrumbMainTime, what ? what : "?");
 	fclose(f);
 }

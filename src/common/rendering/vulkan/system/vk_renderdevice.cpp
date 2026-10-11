@@ -31,6 +31,7 @@
 #include "flatvertices.h"
 #include "hw_bonebuffer.h"
 #include "hw_clock.h"
+#include "nx_perf.h"
 #include "hw_lightbuffer.h"
 #include "hw_skydome.h"
 #include "hwrenderer/data/hw_viewpointbuffer.h"
@@ -203,6 +204,8 @@ void VulkanRenderDevice::InitializeState()
 
 void VulkanRenderDevice::Update()
 {
+	// wipes and the start screen present frames without BeginFrame
+	mCommands->WaitForPendingFrame();
 	twoD.Reset();
 	Flush3D.Reset();
 
@@ -210,8 +213,11 @@ void VulkanRenderDevice::Update()
 
 	GetPostprocess()->SetActiveRenderTarget();
 
-	Draw2D();
-	twod->Clear();
+	{
+		NXPERF_SCOPE(draw2d_ms, nullptr);
+		Draw2D();
+		twod->Clear();
+	}
 
 	mRenderState->EndRenderPass();
 	mRenderState->EndFrame();
@@ -453,6 +459,8 @@ TArray<uint8_t> VulkanRenderDevice::GetScreenshotBuffer(int &pitch, ESSType &col
 
 void VulkanRenderDevice::BeginFrame()
 {
+	// the frame's persistent buffers are rewritten from the start below
+	mCommands->WaitForPendingFrame();
 	SetViewportRects(nullptr);
 	mViewpoints->Clear();
 	mCommands->BeginFrame();
@@ -482,10 +490,19 @@ void VulkanRenderDevice::WaitForCommands(bool finish)
 	mCommands->WaitForCommands(finish);
 }
 
+void VulkanRenderDevice::WaitForPendingFrame()
+{
+	mCommands->WaitForPendingFrame();
+}
+
 unsigned int VulkanRenderDevice::GetLightBufferBlockSize() const
 {
 	return mLights->GetBlockSize();
 }
+
+#ifdef __SWITCH__
+EXTERN_CVAR(Bool, rd_vk_frameoverlap)
+#endif
 
 void VulkanRenderDevice::PrintStartupLog()
 {
@@ -514,6 +531,20 @@ void VulkanRenderDevice::PrintStartupLog()
 		d.Format("%s (api %s, driver %s)", props.deviceName, apiVersion.GetChars(), driverVersion.GetChars());
 		RDoom_SessionSet("vulkan_device", d.GetChars());
 		RDoom_SessionSet("renderer_active", "vulkan");
+
+		// memory types decide whether CPU writes need dcache cleaning (HOST_CACHED)
+		FString mt;
+		const auto &mem = device->PhysicalDevice.Properties.Memory;
+		for (uint32_t i = 0; i < mem.memoryTypeCount; i++)
+		{
+			VkMemoryPropertyFlags f = mem.memoryTypes[i].propertyFlags;
+			mt.AppendFormat("%s%u:%s%s%s%s", i ? ", " : "", i,
+				(f & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) ? "L" : "", (f & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) ? "V" : "",
+				(f & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) ? "Co" : "", (f & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) ? "Ca" : "");
+		}
+		mt += " (L=device local, V=host visible, Co=coherent, Ca=cached)";
+		RDoom_SessionSet("vulkan_memory_types", mt.GetChars());
+		RDoom_SessionSet("vulkan_frame_overlap", rd_vk_frameoverlap ? "on" : "off");
 	}
 #endif
 	Printf("Vulkan device type: %s\n", deviceType.GetChars());

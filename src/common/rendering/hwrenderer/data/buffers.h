@@ -105,6 +105,9 @@ public:
 	size_t Size() { return buffersize; }
 	virtual void GPUDropSync() {}
 	virtual void GPUWaitSync() {}
+	// Switch: CPU writes to Memory() must be cleaned from the dcache before the
+	// GPU reads them (false when the backend mapped the memory uncached).
+	virtual bool NeedsCacheClean() { return true; }
 };
 
 class IVertexBuffer : virtual public IBuffer

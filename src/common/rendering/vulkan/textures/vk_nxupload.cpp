@@ -69,6 +69,12 @@ bool NX_UploadViaBlit(VulkanRenderDevice *fb, VulkanCommandBuffer *cmd, VkImage 
 	const uint8_t *in = (const uint8_t *)pixels;
 	for (int y = 0; y < h; y++)
 		memcpy(mem + layout.offset + (size_t)y * layout.rowPitch, in + (size_t)y * rowBytes, rowBytes);
+	{
+		// The GPU does not snoop the CPU dcache: memory mapped cached must be
+		// cleaned before the blit reads it (uncached memory needs nothing).
+		if (src->MemoryProperties() & VK_MEMORY_PROPERTY_HOST_CACHED_BIT)
+			armDCacheClean(mem, (size_t)(layout.offset + layout.size));
+	}
 	src->Unmap();
 
 	VkImageMemoryBarrier barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };

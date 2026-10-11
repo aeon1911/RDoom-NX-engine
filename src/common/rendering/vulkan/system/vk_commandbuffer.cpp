@@ -31,6 +31,8 @@
 #include "v_video.h"
 #include "vulkan/system/vk_buffer.h"
 #include "vulkan/system/vk_hwbuffer.h"
+#include "nx_perf.h"
+#include "c_cvars.h"
 #if defined(__SWITCH__)
 #include <switch.h>
 #endif
@@ -111,12 +113,33 @@ void VkCommandBufferManager::BeginFrame()
 	}
 }
 
+#if defined(__SWITCH__)
+CVAR(Bool, rd_vk_frameoverlap, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
+
+void VkCommandBufferManager::WaitForPendingFrame()
+{
+	if (!mFramePending)
+		return;
+	NXPERF_SCOPE(vkpending_ms, nullptr);
+	vkWaitForFences(fb->device->device, mPendingFences, mSubmitWaitFences, VK_TRUE, std::numeric_limits<uint64_t>::max());
+	vkResetFences(fb->device->device, mPendingFences, mSubmitWaitFences);
+	mPendingTransferDelete.reset();
+	mPendingDrawDelete.reset();
+	mFramePending = false;
+	mPendingFences = 0;
+}
+
 void VkCommandBufferManager::FlushCommands(VulkanCommandBuffer** commands, size_t count, bool finish, bool lastsubmit)
 {
+	// the fences and command buffers of the previous frame are reused from index 0
+	WaitForPendingFrame();
+
 	int currentIndex = mNextSubmit % maxConcurrentSubmitCount;
 
 	if (mNextSubmit >= maxConcurrentSubmitCount)
 	{
+		NXPERF_SCOPE(gpuwait_ms, nullptr);
 		vkWaitForFences(fb->device->device, 1, &mSubmitFence[currentIndex]->fence, VK_TRUE, std::numeric_limits<uint64_t>::max());
 		vkResetFences(fb->device->device, 1, &mSubmitFence[currentIndex]->fence);
 	}
@@ -141,10 +164,16 @@ void VkCommandBufferManager::FlushCommands(VulkanCommandBuffer** commands, size_
 
 #if defined(__SWITCH__)
 	if (fb && fb->GetBufferManager())
+	{
+		NXPERF_SCOPE(vkclean_ms, nullptr);
 		fb->GetBufferManager()->FlushPersistentBuffers();
+	}
 #endif
 
-	submit.Execute(fb->device.get(), fb->device->GraphicsQueue, mSubmitFence[currentIndex].get());
+	{
+		NXPERF_SCOPE(vksubmit_ms, &nxperf.vksubmits);
+		submit.Execute(fb->device.get(), fb->device->GraphicsQueue, mSubmitFence[currentIndex].get());
+	}
 	mNextSubmit++;
 }
 
@@ -180,6 +209,8 @@ void VkCommandBufferManager::FlushCommands(bool finish, bool lastsubmit, bool up
 
 void VkCommandBufferManager::WaitForCommands(bool finish, bool uploadOnly)
 {
+	WaitForPendingFrame();
+
 	if (finish)
 	{
 		Finish.Reset();
@@ -199,8 +230,28 @@ void VkCommandBufferManager::WaitForCommands(bool finish, bool uploadOnly)
 
 	int numWaitFences = min(mNextSubmit, (int)maxConcurrentSubmitCount);
 
+#if defined(__SWITCH__)
+	// End of a presented frame: leave the GPU work in flight. Everything the
+	// frame used (command buffers, staging memory, deleted objects) stays
+	// alive until WaitForPendingFrame. GPU timestamp queries need the wait.
+	if (finish && !uploadOnly && rd_vk_frameoverlap && !gpuStatActive && numWaitFences > 0)
+	{
+		mFramePending = true;
+		mPendingFences = numWaitFences;
+		mPendingTransferDelete = std::move(TransferDeleteList);
+		mPendingDrawDelete = std::move(DrawDeleteList);
+		DeleteFrameObjects(false);
+		mNextSubmit = 0;
+		Finish.Unclock();
+		rendered_commandbuffers = current_rendered_commandbuffers;
+		current_rendered_commandbuffers = 0;
+		return;
+	}
+#endif
+
 	if (numWaitFences > 0)
 	{
+		NXPERF_SCOPE(gpuwait_ms, nullptr);
 		vkWaitForFences(fb->device->device, numWaitFences, mSubmitWaitFences, VK_TRUE, std::numeric_limits<uint64_t>::max());
 		vkResetFences(fb->device->device, numWaitFences, mSubmitWaitFences);
 	}

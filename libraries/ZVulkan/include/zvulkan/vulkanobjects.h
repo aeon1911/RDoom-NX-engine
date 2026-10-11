@@ -69,6 +69,12 @@ public:
 	size_t size = 0;
 	void *mappedPtr = nullptr;
 	size_t mappedSize = 0;
+#if defined(__SWITCH__)
+	// The memory type has HOST_CACHED: CPU writes sit in the dcache until
+	// cleaned. NVK maps HOST_COHERENT-only memory uncached, and cleaning that
+	// is pure overhead (a DC CVAC per 64-byte line), so it is skipped.
+	bool cpuCached = true;
+#endif
 
 	void *Map(size_t offset, size_t size);
 	void Unmap();
@@ -108,6 +114,7 @@ public:
 	int mipLevels = 1;
 	int layerCount = 1;
 
+	VkMemoryPropertyFlags MemoryProperties() { VkMemoryPropertyFlags f = 0; vmaGetAllocationMemoryProperties(device->allocator, allocation, &f); return f; }
 	void *Map(size_t offset, size_t size);
 	void Unmap();
 
@@ -522,8 +529,8 @@ inline void *VulkanBuffer::Map(size_t offset, size_t size)
 inline void VulkanBuffer::Unmap()
 {
 #if defined(__SWITCH__)
-	// Tegra X1 does not snoop the CPU dcache. HOST_COHERENT is not enough.
-	if (mappedPtr && mappedSize > 0)
+	// Tegra X1 does not snoop the CPU dcache: memory mapped cached must be cleaned.
+	if (cpuCached && mappedPtr && mappedSize > 0)
 		armDCacheClean(mappedPtr, mappedSize);
 #endif
 	mappedPtr = nullptr;

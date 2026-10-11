@@ -44,6 +44,12 @@ public:
 	void WaitForCommands(bool finish) { WaitForCommands(finish, false); }
 	void WaitForCommands(bool finish, bool uploadOnly);
 
+	// Frame overlap (Switch): the end of a frame submits and presents but does
+	// not wait for the GPU; the wait happens here, at the start of the next
+	// frame (or before any other submit), so the GPU draws frame N while the
+	// CPU runs the game tics and input of frame N+1.
+	void WaitForPendingFrame();
+
 	void PushGroup(const FString& name);
 	void PopGroup();
 	void UpdateGpuStats();
@@ -95,6 +101,11 @@ private:
 	std::unique_ptr<VulkanFence> mSubmitFence[maxConcurrentSubmitCount];
 	VkFence mSubmitWaitFences[maxConcurrentSubmitCount];
 	int mNextSubmit = 0;
+
+	bool mFramePending = false;
+	int mPendingFences = 0;
+	std::unique_ptr<DeleteList> mPendingTransferDelete;
+	std::unique_ptr<DeleteList> mPendingDrawDelete;
 
 	struct TimestampQuery
 	{

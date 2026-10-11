@@ -56,6 +56,10 @@ public:
 	VulkanRenderDevice* fb = nullptr;
 	std::list<VkHardwareBuffer*>::iterator it;
 
+#if defined(__SWITCH__)
+	bool NeedsCacheClean() override { return !mBuffer || mBuffer->cpuCached; }
+#endif
+
 	VkBufferUsageFlags mBufferType = 0;
 	std::unique_ptr<VulkanBuffer> mBuffer;
 	std::unique_ptr<VulkanBuffer> mStaging;

@@ -29,6 +29,13 @@ struct NXPerfCounters
 	double present_ms = 0;	// copy of the finished frame to the window (waits for a free window buffer)
 	double draw2d_ms = 0;	// 2D drawing (HUD, menus, messages) - part of update_ms
 	double frameend_ms = 0;	// end of the previous frame done at the start of this one (GL driver thread: fence, swap, waits)
+	// Vulkan frame end (parts of update_ms; acquire/present also go to present_ms, fence waits to gpuwait_ms)
+	int vksubmits = 0;			// vkQueueSubmit calls
+	double vksubmit_ms = 0;		// inside vkQueueSubmit
+	double vkclean_ms = 0;		// dcache clean of persistent buffers before a submit
+	double vkacquire_ms = 0;	// vkAcquireNextImageKHR
+	double vkpresent_ms = 0;	// vkQueuePresentKHR
+	double vkpending_ms = 0;	// waiting at the start of a frame for the previous frame's GPU work (frame overlap)
 	int tics = 0, shaders = 0, textures = 0, sounds = 0, sndstarts = 0;
 	int thinkers = 0;		// thinkers ticked (summed over the frame's tics)
 	int tex_async = 0, tex_wait = 0, tex_budget = 0, snd_async = 0, tex_preupload = 0;

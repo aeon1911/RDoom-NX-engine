@@ -673,6 +673,11 @@ std::unique_ptr<VulkanBuffer> BufferBuilder::Create(VulkanDevice* device)
 	}
 
 	auto obj = std::make_unique<VulkanBuffer>(device, buffer, allocation, bufferInfo.size);
+#if defined(__SWITCH__)
+	VkMemoryPropertyFlags memflags = 0;
+	vmaGetAllocationMemoryProperties(device->allocator, allocation, &memflags);
+	obj->cpuCached = (memflags & VK_MEMORY_PROPERTY_HOST_CACHED_BIT) != 0;
+#endif
 	if (debugName)
 		obj->SetDebugName(debugName);
 	return obj;

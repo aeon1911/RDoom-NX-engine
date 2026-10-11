@@ -45,6 +45,7 @@ VkFramebufferManager::~VkFramebufferManager()
 {
 }
 
+#include "nx_perf.h"
 #ifdef __SWITCH__
 #include "common/platform/posix/nx/rdoom_nx.h"
 static unsigned rdoomPresented;
@@ -82,7 +83,10 @@ void VkFramebufferManager::AcquireImage()
 		}
 	}
 
-	PresentImageIndex = SwapChain->AcquireImage(SwapChainImageAvailableSemaphore.get());
+	{
+		NXPERF_SCOPE(vkacquire_ms, nullptr);
+		PresentImageIndex = SwapChain->AcquireImage(SwapChainImageAvailableSemaphore.get());
+	}
 	if (PresentImageIndex != -1)
 	{
 		fb->GetPostprocess()->DrawPresentTexture(fb->mOutputLetterbox, true, false);
@@ -93,7 +97,10 @@ void VkFramebufferManager::QueuePresent()
 {
 	if (PresentImageIndex != -1)
 	{
-		SwapChain->QueuePresent(PresentImageIndex, RenderFinishedSemaphores[PresentImageIndex].get());
+		{
+			NXPERF_SCOPE(vkpresent_ms, nullptr);
+			SwapChain->QueuePresent(PresentImageIndex, RenderFinishedSemaphores[PresentImageIndex].get());
+		}
 #ifdef __SWITCH__
 		// proof in the session report that frames really reach the display
 		rdoomPresented++;

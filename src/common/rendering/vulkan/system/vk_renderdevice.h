@@ -112,6 +112,7 @@ public:
 	void Draw2D() override;
 
 	void WaitForCommands(bool finish) override;
+	void WaitForPendingFrame() override;
 
 	bool RaytracingEnabled();
 

@@ -2928,6 +2928,9 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 {
 	const int *oldvertextable  = nullptr;
 
+	// Vulkan frame overlap: the last frame of the old level may still be on the GPU
+	if (screen) screen->WaitForPendingFrame();
+
 	// note: most of this ordering is important
 	ForceNodeBuild = gennodes;
 
@@ -3229,6 +3232,7 @@ void MapLoader::LoadLevel(MapData *map, const char *lumpname, int position)
 
 	InitRenderInfo();				// create hardware independent renderer resources for the level. This must be done BEFORE the PolyObj Spawn!!!
 	Level->ClearDynamic3DFloorData();	// CreateVBO must be run on the plain 3D floor data.
+	screen->WaitForPendingFrame();	// the vertex buffer is rewritten in place
 	CreateVBO(screen->mVertexData, Level->sectors);
 
 	screen->InitLightmap(Level->LMTextureSize, Level->LMTextureCount, Level->LMTextureData);
