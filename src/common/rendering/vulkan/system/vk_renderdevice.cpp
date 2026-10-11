@@ -126,7 +126,13 @@ VulkanRenderDevice::VulkanRenderDevice(void *hMonitor, bool fullscreen, std::sha
 
 VulkanRenderDevice::~VulkanRenderDevice()
 {
-	vkDeviceWaitIdle(device->device); // make sure the GPU is no longer using any objects before RAII tears them down
+	// make sure the GPU is no longer using any objects before RAII tears them down
+	if (vkDeviceWaitIdle(device->device) == VK_ERROR_DEVICE_LOST && !VulkanDeviceWasLost)
+	{
+		VulkanDeviceWasLost = true;  // no exception here: this is a destructor
+		if (VulkanDeviceLostCallback)
+			VulkanDeviceLostCallback("vkDeviceWaitIdle at shutdown");
+	}
 
 	delete mVertexData;
 	delete mSkyData;
@@ -545,6 +551,20 @@ void VulkanRenderDevice::PrintStartupLog()
 		mt += " (L=device local, V=host visible, Co=coherent, Ca=cached)";
 		RDoom_SessionSet("vulkan_memory_types", mt.GetChars());
 		RDoom_SessionSet("vulkan_frame_overlap", rd_vk_frameoverlap ? "on" : "off");
+
+		// vertex formats the renderer uses (models: packed normals, bone ids)
+		static const struct { VkFormat f; const char *n; } vf[] = {
+			{ VK_FORMAT_R32G32B32A32_SFLOAT, "RGBA32F" }, { VK_FORMAT_R32G32B32_SFLOAT, "RGB32F" },
+			{ VK_FORMAT_R32G32_SFLOAT, "RG32F" }, { VK_FORMAT_R32_SFLOAT, "R32F" }, { VK_FORMAT_R8G8B8A8_UNORM, "RGBA8" },
+			{ VK_FORMAT_A2B10G10R10_SNORM_PACK32, "A2B10G10R10_SNORM" }, { VK_FORMAT_R8G8B8A8_UINT, "RGBA8UI" } };
+		FString fs;
+		for (auto &v : vf)
+		{
+			VkFormatProperties fp = {};
+			vkGetPhysicalDeviceFormatProperties(device->PhysicalDevice.Device, v.f, &fp);
+			fs.AppendFormat("%s%s=%s", fs.IsEmpty() ? "" : ", ", v.n, (fp.bufferFeatures & VK_FORMAT_FEATURE_VERTEX_BUFFER_BIT) ? "ok" : "NO");
+		}
+		RDoom_SessionSet("vulkan_vertex_formats", fs.GetChars());
 	}
 #endif
 	Printf("Vulkan device type: %s\n", deviceType.GetChars());

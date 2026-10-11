@@ -6,6 +6,9 @@
 #include <string>
 #include <cstring>
 
+bool VulkanDeviceWasLost = false;
+void (*VulkanDeviceLostCallback)(const char *what) = nullptr;
+
 VulkanInstance::VulkanInstance(std::vector<uint32_t> apiVersionsToTry, std::set<std::string> requiredExtensions, std::set<std::string> optionalExtensions, bool wantDebugLayer)
 	: ApiVersionsToTry(std::move(apiVersionsToTry)), RequiredExtensions(std::move(requiredExtensions)), OptionalExtensions(std::move(optionalExtensions)), WantDebugLayer(wantDebugLayer)
 {

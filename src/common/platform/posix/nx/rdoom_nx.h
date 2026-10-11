@@ -18,3 +18,9 @@ void RDoom_SessionSet(const char *key, const char *value);
 void RDoom_SessionLog(const char *category, const char *message);
 // Appends one line to logs/boot.log with an unbuffered write (start-up steps).
 void RDoom_Crumb(const char *what);
+
+// Deletes UZDoom's Vulkan pipeline cache and Mesa's shader cache. Returns files removed.
+int RDoom_ClearShaderCaches();
+// Marker logs/gpu-lost.txt (+ session line) after VK_ERROR_DEVICE_LOST; the next
+// start-up clears the shader caches when it finds it.
+void RDoom_VulkanDeviceLost(const char *what);

@@ -21,6 +21,9 @@
 */
 
 #include "vk_renderpass.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/rdoom_nx.h"
+#endif
 #include "vk_renderstate.h"
 #include "vk_descriptorset.h"
 #include "vk_raytrace.h"
@@ -68,6 +71,10 @@ VkRenderPassManager::VkRenderPassManager(VulkanRenderDevice* fb) : fb(fb)
 
 VkRenderPassManager::~VkRenderPassManager()
 {
+	// after a lost device the driver may hand back incomplete data; a bad cache
+	// would then break every following session
+	if (VulkanDeviceWasLost)
+		return;
 	try
 	{
 		auto data = PipelineCache->GetCacheData();
@@ -334,6 +341,20 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 	builder.RenderPass(GetRenderPass(0));
 	builder.DebugName("VkRenderPassSetup.Pipeline");
 
+#ifdef __SWITCH__
+	// Evidence for GPU faults on hardware: the session report always names the
+	// newest pipeline (a fault right after a new effect/model shows up here).
+	{
+		static unsigned created;
+		FString d, attrs;
+		for (auto &a : vfmt.Attrs)
+			attrs.AppendFormat(" L%d:b%d:f%d", a.location, a.binding, a.format);
+		d.Format("#%u: vertexformat %d (%d bindings, stride %d,%s), effect %d, special %d, alphatest %d, draw %d, layers %d, samples %d, buffers %d",
+			++created, key.VertexFormat, vfmt.NumBindingPoints, (int)vfmt.Stride, attrs.GetChars(), key.EffectState, key.SpecialEffect,
+			key.AlphaTest, key.DrawType, key.NumTextureLayers, PassKey.Samples, PassKey.DrawBuffers);
+		RDoom_SessionSet("vulkan_last_new_pipeline", d.GetChars());
+	}
+#endif
 	return builder.Create(fb->device.get());
 }
 

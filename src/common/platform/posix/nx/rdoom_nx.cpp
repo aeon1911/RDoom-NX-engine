@@ -194,6 +194,28 @@ void RDoom_NXEarlyInit()
 	unlink(RDOOM_SD_ROOT "/logs/engine-session.txt");
 	RLOG_I("boot", "%s (%s, %s), engine %s", RDOOM_VERSION_STRING, RDOOM_BUILD_DATE, RDOOM_GIT_DESCRIBE, RDOOM_ENGINE_VERSION);
 	RLOG_I("boot", "clock policy: stock (RDoom never changes CPU/GPU/memory clocks)");
+
+	// The previous session lost the GPU: start the shader caches from scratch,
+	// so a pipeline or shader binary written around the failure is never reused.
+	if (FileExists(RDOOM_SD_ROOT "/logs/gpu-lost.txt"))
+	{
+		RLOG_W("boot", "previous session lost the GPU: clearing shader caches (%d files)", RDoom_ClearShaderCaches());
+		RemoveFile(RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
+		rename(RDOOM_SD_ROOT "/logs/gpu-lost.txt", RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
+	}
+}
+
+int RDoom_ClearShaderCaches()
+{
+	int n = 0;
+	// UZDoom's Vulkan pipeline cache (written on exit)
+	if (RemoveFile(RDOOM_SD_ROOT "/cache/uzdoom/vulkanpipelinecache"))
+		n++;
+	// Mesa's on-disk shader cache (NVK and the GL driver)
+	const int m = RemoveTree("sdmc:/.mesa/mesa_shader_cache_sf");
+	if (m > 0)
+		n += m;
+	return n;
 }
 
 bool RDoom_NXLauncherUsedDisplay()
@@ -289,6 +311,23 @@ write:
 		fclose(f);
 	}
 	RLOG_I("session", "%s: %s", key, value);
+}
+
+// Called by ZVulkan the first time the GPU is reported lost: leaves a marker
+// with everything the session report knows (newest pipeline, frames presented),
+// read by the next start-up.
+void RDoom_VulkanDeviceLost(const char *what)
+{
+	RDoom_SessionSet("vulkan_device_lost", what ? what : "?");
+	std::string out = std::string("GPU lost: ") + (what ? what : "?") + "\n";
+	for (auto &kv : g_session)
+		out += kv.first + ": " + kv.second + "\n";
+	FILE *f = fopen(RDOOM_SD_ROOT "/logs/gpu-lost.txt", "w");
+	if (f)
+	{
+		fwrite(out.data(), 1, out.size(), f);
+		fclose(f);
+	}
 }
 
 void RDoom_SessionLog(const char *category, const char *message)

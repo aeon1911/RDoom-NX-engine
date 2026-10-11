@@ -96,8 +96,19 @@ std::string VkResultToString(VkResult result);
 void VulkanPrintLog(const char* typestr, const std::string& msg);
 void VulkanError(const char* text);
 
+// Set the first time any call reports VK_ERROR_DEVICE_LOST; the callback lets
+// the platform layer record it (e.g. so a cache written afterwards is skipped).
+extern bool VulkanDeviceWasLost;
+extern void (*VulkanDeviceLostCallback)(const char *what);
+
 inline void CheckVulkanError(VkResult result, const char* text)
 {
 	if (result >= VK_SUCCESS) return;
+	if (result == VK_ERROR_DEVICE_LOST && !VulkanDeviceWasLost)
+	{
+		VulkanDeviceWasLost = true;
+		if (VulkanDeviceLostCallback)
+			VulkanDeviceLostCallback(text);
+	}
 	VulkanError((text + std::string(": ") + VkResultToString(result)).c_str());
 }

@@ -42,6 +42,7 @@
 #include <zvulkan/vulkanbuilders.h>
 #include <zvulkan/vulkandevice.h>
 #include <zvulkan/vulkaninstance.h>
+#include <ctype.h>
 #include <zvulkan/vulkansurface.h>
 #endif
 
@@ -459,6 +460,42 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 #ifdef __SWITCH__
 	RDoom_SessionSet("renderer_requested", vid_preferbackend == BACKEND_VULKAN ? "vulkan" : vid_preferbackend == BACKEND_OPENGL ? "opengl" : "gles");
 	RDoom_SessionSet("nv_compat", NX_NvCompatStatus());
+	// Diagnostics without a new build: switch/rdoom/rdoom_debug.txt with one
+	// NAME=value per line. UPPER-CASE names are driver environment variables
+	// (NVK_DEBUG=push_sync, NVK_SWITCH_NO_UBO_CBUF=1, ...), applied before the
+	// driver starts; lower-case names are engine CVARs (rd_vk_frameoverlap=0,
+	// r_dynlights=0, ...). Nothing changes when the file is absent.
+	if (FILE *ef = fopen("rdoom_debug.txt", "r"))
+	{
+		char line[256];
+		FString applied;
+		while (fgets(line, sizeof(line), ef))
+		{
+			char *nl = strpbrk(line, "\r\n");
+			if (nl) *nl = 0;
+			char *eq = strchr(line, '=');
+			if (!eq || eq == line || line[0] == '#') continue;
+			*eq = 0;
+			const char *value = eq + 1;
+			if (isupper((unsigned char)line[0]))
+			{
+				setenv(line, value, 1);
+				applied.AppendFormat("%s%s=%s", applied.IsEmpty() ? "" : " ", line, value);
+			}
+			else if (FBaseCVar *cv = FindCVar(line, nullptr))
+			{
+				UCVarValue v;
+				v.String = value;
+				cv->SetGenericRep(v, CVAR_String);
+				applied.AppendFormat("%s%s=%s", applied.IsEmpty() ? "" : " ", line, value);
+			}
+			else
+				applied.AppendFormat("%s%s=?(unknown cvar)", applied.IsEmpty() ? "" : " ", line);
+		}
+		fclose(ef);
+		RDoom_SessionSet("debug_file", applied.GetChars());
+	}
+	VulkanDeviceLostCallback = RDoom_VulkanDeviceLost;
 #endif
 	if (Priv::vulkanEnabled)
 	{
