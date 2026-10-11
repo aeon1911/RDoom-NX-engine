@@ -102,6 +102,7 @@ protected:
 	float mViewportDepthMin = 0.0f, mViewportDepthMax = 1.0f;
 	bool mScissorChanged = true;
 	bool mViewportChanged = true;
+	int mEmuBiasSign = 0;	// Switch: depth bias emulated through the viewport depth range (-1 closer, +1 farther)
 
 	bool mDepthTest = false;
 	bool mDepthWrite = false;

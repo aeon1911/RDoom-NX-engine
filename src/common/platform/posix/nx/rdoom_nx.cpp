@@ -169,7 +169,7 @@ void RDoom_Crumb(const char *what)
 	int fd = open(RDOOM_SD_ROOT "/logs/boot.log", O_WRONLY | O_CREAT | O_APPEND, 0644);
 	if (fd < 0)
 		return;
-	char buf[256];
+	char buf[768];
 	int n = snprintf(buf, sizeof(buf), "[%8llu ms] %s\n", (unsigned long long)(armTicksToNs(armGetSystemTick()) / 1000000ULL), what);
 	write(fd, buf, n > 0 && n < (int)sizeof(buf) ? n : (int)sizeof(buf) - 1);
 	close(fd);

@@ -63,8 +63,15 @@ CVAR(Int, rd_vk_drawlog, 0, 0)
 // experiments for the GPU hang on the first 3D draw (hardware only):
 // rd_vk_nofans 1 = triangle fans drawn as indexed triangle lists
 // rd_vk_zstate 1 = no depth/stencil writes, 2 = no depth/stencil tests at all
-CVAR(Bool, rd_vk_nofans, false, 0)
+// Hardware results 2026-10-11: triangle fans and depth bias both hang the
+// GM20B under NVK (fifo idle timeout); lists and plain states do not.
+CVAR(Bool, rd_vk_nofans, true, 0)
 CVAR(Int, rd_vk_zstate, 0, 0)
+// rd_vk_depthbias 0: depth bias emulated by compressing the viewport depth
+// range for biased draws ([0,1-eps] closer, [eps,1] farther); 1: native bias
+CVAR(Bool, rd_vk_depthbias, false, 0)
+CVAR(Float, rd_vk_depthbias_eps, 1.0f / 8192.0f, 0)
+int rd_vk_drawlog_burst = 0;
 int rd_vk_drawlog_started = 0;
 extern int nx_levelframes;
 void RDoom_Crumb(const char *what);
@@ -73,8 +80,15 @@ static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, 
 {
 	static int logged;
 	// 3D draws (depth or stencil in use), also during the screen wipe into a level
-	if (rd_vk_drawlog <= 0 || logged >= 3000 || (!key.DepthTest && !key.StencilTest && !logged))
+	if (rd_vk_drawlog <= 0 || (!key.DepthTest && !key.StencilTest && !logged))
 		return;
+	// the first 3000 draws from the first 3D draw on, then 50 after every new pipeline
+	if (logged >= 3000)
+	{
+		if (rd_vk_drawlog_burst <= 0 || logged >= 20000)
+			return;
+		rd_vk_drawlog_burst--;
+	}
 	logged++;
 	extern int rd_vk_drawlog_started;
 	rd_vk_drawlog_started = 1;
@@ -259,6 +273,13 @@ void VkRenderState::Apply(int dt)
 
 void VkRenderState::ApplyDepthBias()
 {
+#ifdef __SWITCH__
+	if (!rd_vk_depthbias)
+	{
+		mBias.mChanged = false;  // emulated in ApplyViewport
+		return;
+	}
+#endif
 	if (mBias.mChanged)
 	{
 		mCommandBuffer->setDepthBias(mBias.mUnits, 0.0f, mBias.mFactor);
@@ -278,6 +299,10 @@ void VkRenderState::ApplyRenderPass(int dt)
 	pipelineKey.DepthFunc = mDepthFunc;
 	pipelineKey.DepthClamp = mDepthClamp;
 	pipelineKey.DepthBias = !(mBias.mFactor == 0 && mBias.mUnits == 0);
+#ifdef __SWITCH__
+	if (!rd_vk_depthbias)
+		pipelineKey.DepthBias = 0;
+#endif
 	pipelineKey.StencilTest = mStencilTest;
 	pipelineKey.StencilPassOp = mStencilOp;
 	pipelineKey.ColorMask = mColorMask;
@@ -362,6 +387,18 @@ void VkRenderState::ApplyScissor()
 
 void VkRenderState::ApplyViewport()
 {
+#ifdef __SWITCH__
+	{
+		int sign = 0;
+		if (!rd_vk_depthbias && !(mBias.mFactor == 0 && mBias.mUnits == 0))
+			sign = (mBias.mUnits < 0 || (mBias.mUnits == 0 && mBias.mFactor < 0)) ? -1 : 1;
+		if (sign != mEmuBiasSign)
+		{
+			mEmuBiasSign = sign;
+			mViewportChanged = true;
+		}
+	}
+#endif
 	if (mViewportChanged)
 	{
 		VkViewport viewport;
@@ -381,6 +418,17 @@ void VkRenderState::ApplyViewport()
 		}
 		viewport.minDepth = mViewportDepthMin;
 		viewport.maxDepth = mViewportDepthMax;
+#ifdef __SWITCH__
+		if (mEmuBiasSign)
+		{
+			const float range = mViewportDepthMax - mViewportDepthMin;
+			const float eps = clamp<float>(rd_vk_depthbias_eps, 0.0f, 0.01f) * range;
+			if (mEmuBiasSign < 0)
+				viewport.maxDepth -= eps;	// biased toward the camera (decals, wall sprites)
+			else
+				viewport.minDepth += eps;	// biased away from it
+		}
+#endif
 		mCommandBuffer->setViewport(0, 1, &viewport);
 		mViewportChanged = false;
 	}

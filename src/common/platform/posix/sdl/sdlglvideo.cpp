@@ -478,17 +478,10 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 			if (FBaseCVar *cv = FindCVar(name, nullptr)) { UCVarValue v; v.String = value; cv->SetGenericRep(v, CVAR_String); }
 			applied.AppendFormat(" %s=%s", name, value);
 		};
-		// one hypothesis per step for the hang on the first 3D draw (ZCULL is
-		// already off by default; driver workarounds did not help, 2026-10-11)
-		if (step >= 1 && step <= 3)
-			setcvar("rd_vk_nofans", "1");
-		if (step == 2)
-			setcvar("rd_vk_zstate", "1");
-		if (step == 3)
-			setcvar("rd_vk_zstate", "2");
-		if (step >= 4)
+		// fans and depth bias are worked around by default now (hardware tests
+		// 2026-10-11); a further loss goes straight to trace mode
+		if (step >= 1)
 		{
-			// trace mode: every draw submitted and waited for, one log line per 3D draw
 			setenv("NVK_DEBUG", "push_sync", 1);
 			applied += " NVK_DEBUG=push_sync (trace mode)";
 			setcvar("vk_submit_size", "1");

@@ -361,10 +361,17 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 		FString d, attrs;
 		for (auto &a : vfmt.Attrs)
 			attrs.AppendFormat(" L%d:b%d:f%d", a.location, a.binding, a.format);
-		d.Format("#%u: vertexformat %d (%d bindings, stride %d,%s), effect %d, special %d, alphatest %d, draw %d, layers %d, samples %d, buffers %d",
+		d.Format("#%u: vertexformat %d (%d bindings, stride %d,%s), effect %d, special %d, alphatest %d, draw %d, layers %d, samples %d, buffers %d, "
+			"blend op %d src %d dst %d flags 0x%x, depth test %d write %d func %d clamp %d bias %d, stencil %d op %d, colormask 0x%x, cull %d",
 			++created, key.VertexFormat, vfmt.NumBindingPoints, (int)vfmt.Stride, attrs.GetChars(), key.EffectState, key.SpecialEffect,
-			key.AlphaTest, key.DrawType, key.NumTextureLayers, PassKey.Samples, PassKey.DrawBuffers);
+			key.AlphaTest, key.DrawType, key.NumTextureLayers, PassKey.Samples, PassKey.DrawBuffers,
+			key.RenderStyle.BlendOp, key.RenderStyle.SrcAlpha, key.RenderStyle.DestAlpha, key.RenderStyle.Flags,
+			key.DepthTest, key.DepthWrite, key.DepthFunc, key.DepthClamp, key.DepthBias, key.StencilTest, key.StencilPassOp, key.ColorMask, key.CullMode);
 		RDoom_SessionSet("vulkan_last_new_pipeline", d.GetChars());
+		FString c = "new pipeline " + d;
+		RDoom_Crumb(c.GetChars());
+		extern int rd_vk_drawlog_burst;
+		rd_vk_drawlog_burst = 50;
 	}
 #endif
 	return builder.Create(fb->device.get());
