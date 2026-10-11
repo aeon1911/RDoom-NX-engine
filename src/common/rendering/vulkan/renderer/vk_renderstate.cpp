@@ -60,15 +60,24 @@ void VkRenderState::ClearScreen()
 // is submitted and waited for on its own; each recorded draw leaves a line in
 // logs/boot.log first, so after a hang the last line names the draw that hung.
 CVAR(Int, rd_vk_drawlog, 0, 0)
+// experiments for the GPU hang on the first 3D draw (hardware only):
+// rd_vk_nofans 1 = triangle fans drawn as indexed triangle lists
+// rd_vk_zstate 1 = no depth/stencil writes, 2 = no depth/stencil tests at all
+CVAR(Bool, rd_vk_nofans, false, 0)
+CVAR(Int, rd_vk_zstate, 0, 0)
+int rd_vk_drawlog_started = 0;
 extern int nx_levelframes;
 void RDoom_Crumb(const char *what);
 
 static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, int index, int count)
 {
 	static int logged;
-	if (rd_vk_drawlog <= 0 || nx_levelframes < 1 || nx_levelframes > rd_vk_drawlog || logged >= 6000)
+	// 3D draws (depth or stencil in use), also during the screen wipe into a level
+	if (rd_vk_drawlog <= 0 || logged >= 3000 || (!key.DepthTest && !key.StencilTest && !logged))
 		return;
 	logged++;
+	extern int rd_vk_drawlog_started;
+	rd_vk_drawlog_started = 1;
 	char buf[220];
 	snprintf(buf, sizeof(buf), "draw %d (level frame %d): %s first %d count %d | vfmt %d effect %d special %d alphatest %d drawtype %d layers %d depth %d/%d stencil %d | %s",
 		logged, nx_levelframes, kind, index, count, key.VertexFormat, key.EffectState, key.SpecialEffect, key.AlphaTest, key.DrawType,
@@ -83,6 +92,21 @@ static void LogDraw(const VkPipelineKey &key, FMaterial *mat, const char *kind, 
 
 void VkRenderState::Draw(int dt, int index, int count, bool apply)
 {
+#ifdef __SWITCH__
+	if (rd_vk_nofans && dt == DT_TriangleFan && count >= 3 && count <= 999)
+	{
+		IIndexBuffer *oldIndexBuffer = mIndexBuffer;
+		mIndexBuffer = fb->GetBufferManager()->FanToTrisIndexBuffer.get();
+		if (apply || mNeedApply)
+			Apply(DT_Triangles);
+		else
+			ApplyVertexBuffers();
+		mCommandBuffer->drawIndexed((count - 2) * 3, 1, 0, index, 0);
+		mIndexBuffer = oldIndexBuffer;
+		RD_LOGDRAW("fan as triangles", index, count);
+		return;
+	}
+#endif
 	if (apply || mNeedApply)
 		Apply(dt);
 

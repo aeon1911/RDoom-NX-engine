@@ -316,7 +316,19 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 	static const VkCompareOp depthfunc2vk[] = { VK_COMPARE_OP_LESS, VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_ALWAYS };
 
 	builder.Topology(vktopology[key.DrawType]);
+#ifdef __SWITCH__
+	{
+		EXTERN_CVAR(Int, rd_vk_zstate)
+		if (rd_vk_zstate == 1)
+			builder.DepthStencilEnable(key.DepthTest, false, false);
+		else if (rd_vk_zstate >= 2)
+			builder.DepthStencilEnable(false, false, false);
+		else
+			builder.DepthStencilEnable(key.DepthTest, key.DepthWrite, key.StencilTest);
+	}
+#else
 	builder.DepthStencilEnable(key.DepthTest, key.DepthWrite, key.StencilTest);
+#endif
 	builder.DepthFunc(depthfunc2vk[key.DepthFunc]);
 	if (fb->device->EnabledFeatures.Features.depthClamp)
 		builder.DepthClampEnable(key.DepthClamp);
