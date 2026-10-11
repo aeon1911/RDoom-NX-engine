@@ -412,6 +412,12 @@ ImageBuilder& ImageBuilder::LinearTiling()
 	return *this;
 }
 
+ImageBuilder& ImageBuilder::InitialLayout(VkImageLayout layout)
+{
+	imageInfo.initialLayout = layout;
+	return *this;
+}
+
 ImageBuilder& ImageBuilder::Usage(VkImageUsageFlags usage, VmaMemoryUsage memoryUsage, VmaAllocationCreateFlags allocFlags)
 {
 	imageInfo.usage = usage;

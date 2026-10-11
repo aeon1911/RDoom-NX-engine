@@ -36,6 +36,7 @@
 #include "vulkan/renderer/vk_postprocess.h"
 #include "vulkan/shaders/vk_shader.h"
 #include "vk_hwtexture.h"
+#include "vk_nxupload.h"
 
 VkHardwareTexture::VkHardwareTexture(VulkanRenderDevice* fb, int numchannels) : fb(fb)
 {
@@ -142,16 +143,6 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 
 	int totalSize = w * h * pixelsize;
 
-	auto stagingBuffer = BufferBuilder()
-		.Size(totalSize)
-		.Usage(VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY)
-		.DebugName("VkHardwareTexture.mStagingBuffer")
-		.Create(fb->device.get());
-
-	uint8_t *data = (uint8_t*)stagingBuffer->Map(0, totalSize);
-	memcpy(data, pixels, totalSize);
-	stagingBuffer->Unmap();
-
 	mImage.Image = ImageBuilder()
 		.Format(format)
 		.Size(w, h, !mipmap ? 1 : GetMipLevels(w, h))
@@ -170,6 +161,19 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 		.AddImage(&mImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, true)
 		.Execute(cmdbuffer);
 
+	std::unique_ptr<VulkanBuffer> stagingBuffer;
+	if (!NX_UploadViaBlit(fb, cmdbuffer, mImage.Image->image, format, w, h, pixelsize, pixels))
+	{
+	stagingBuffer = BufferBuilder()
+		.Size(totalSize)
+		.Usage(VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_ONLY)
+		.DebugName("VkHardwareTexture.mStagingBuffer")
+		.Create(fb->device.get());
+
+	uint8_t *data = (uint8_t*)stagingBuffer->Map(0, totalSize);
+	memcpy(data, pixels, totalSize);
+	stagingBuffer->Unmap();
+
 	VkBufferImageCopy region = {};
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	region.imageSubresource.layerCount = 1;
@@ -177,6 +181,7 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 	region.imageExtent.width = w;
 	region.imageExtent.height = h;
 	cmdbuffer->copyBufferToImage(stagingBuffer->buffer, mImage.Image->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+	}
 
 	if (mipmap) mImage.GenerateMipmaps(cmdbuffer);
 

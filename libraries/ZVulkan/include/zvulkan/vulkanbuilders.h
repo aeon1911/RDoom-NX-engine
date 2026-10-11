@@ -125,6 +125,7 @@ public:
 	ImageBuilder& Usage(VkImageUsageFlags imageUsage, VmaMemoryUsage memoryUsage = VMA_MEMORY_USAGE_GPU_ONLY, VmaAllocationCreateFlags allocFlags = 0);
 	ImageBuilder& MemoryType(VkMemoryPropertyFlags requiredFlags, VkMemoryPropertyFlags preferredFlags, uint32_t memoryTypeBits = 0);
 	ImageBuilder& LinearTiling();
+	ImageBuilder& InitialLayout(VkImageLayout layout);
 	ImageBuilder& DebugName(const char* name) { debugName = name; return *this; }
 
 	bool IsFormatSupported(VulkanDevice *device, VkFormatFeatureFlags bufferFeatures = 0);
