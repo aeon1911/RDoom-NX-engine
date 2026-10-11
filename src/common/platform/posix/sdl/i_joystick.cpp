@@ -50,6 +50,15 @@ static const EAxisCodes ControllerAxisCodes[][2] =
 
 EXTERN_CVAR(Bool, use_joystick)
 
+#ifdef __SWITCH__
+// RDoom profile settings for Joy-Con / Pro Controller, sent by the launcher
+// with +set. Negative = keep what the engine's controller menu saved.
+void RDoom_ApplyJoyOverrides();
+CUSTOM_CVAR(Float, rd_joy_sensitivity, -1.f, CVAR_NOINITCALL) { RDoom_ApplyJoyOverrides(); }
+CUSTOM_CVAR(Float, rd_joy_deadzone, -1.f, CVAR_NOINITCALL) { RDoom_ApplyJoyOverrides(); }
+CUSTOM_CVAR(Int, rd_joy_invert_look, -1, CVAR_NOINITCALL) { RDoom_ApplyJoyOverrides(); }
+#endif
+
 class SDLInputJoystick: public IJoystickConfig
 {
 public:
@@ -96,7 +105,36 @@ public:
 			}
 		}
 		M_LoadJoystickConfig(this);
+#ifdef __SWITCH__
+		ApplyRDoomOverrides();
+#endif
 	}
+#ifdef __SWITCH__
+	void ApplyRDoomOverrides()
+	{
+		// CVars are created when the engine starts (C_InitCVars), after the
+		// first joystick scan; the +set callbacks apply the values later.
+		if (!IsValid() || !rd_joy_deadzone.get() || !rd_joy_sensitivity.get() || !rd_joy_invert_look.get())
+			return;
+		// sticks only (axes 0-3); the right stick (2, 3) is the look stick
+		const int sticks = NumAxes < 4 ? NumAxes : 4;
+		for (int i = 0; i < sticks; i++)
+		{
+			if (rd_joy_deadzone >= 0)
+				SetAxisDeadZone(i, rd_joy_deadzone);
+			if (i >= 2)
+			{
+				float base = i < DefaultAxesCount ? DefaultAxes[i].Multiplier : JOYSENSITIVITY_DEFAULT;
+				float scale = rd_joy_sensitivity >= 0 ? base * rd_joy_sensitivity : fabsf(Axes[i].Multiplier);
+				if (i == 3 && rd_joy_invert_look >= 0)
+					scale = rd_joy_invert_look ? -fabsf(scale) : fabsf(scale);
+				else if (i == 3 && Axes[i].Multiplier < 0)
+					scale = -fabsf(scale);
+				SetAxisScale(i, scale);
+			}
+		}
+	}
+#endif
 	~SDLInputJoystick()
 	{
 		if(IsValid() && SettingsChanged)
@@ -665,8 +703,20 @@ public:
 
 protected:
 	TDeletingArray<SDLInputJoystick *> Joysticks;
+#ifdef __SWITCH__
+	friend void RDoom_ApplyJoyOverrides();
+#endif
 };
 static SDLInputJoystickManager *JoystickManager;
+
+#ifdef __SWITCH__
+void RDoom_ApplyJoyOverrides()
+{
+	if (JoystickManager)
+		for (unsigned i = 0; i < JoystickManager->Joysticks.Size(); i++)
+			JoystickManager->Joysticks[i]->ApplyRDoomOverrides();
+}
+#endif
 
 void I_StartupJoysticks()
 {
