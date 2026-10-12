@@ -36,6 +36,7 @@
 #include "vulkan/renderer/vk_postprocess.h"
 #include "vulkan/shaders/vk_shader.h"
 #include "vk_hwtexture.h"
+#include "vulkan/renderer/vk_renderpass.h"
 #ifdef __SWITCH__
 VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage);
 #endif
@@ -362,6 +363,10 @@ VulkanDescriptorSet* VkMaterial::GetDescriptorSet(const FMaterialState& state)
 	}
 
 	int numLayers = NumLayers();
+#ifdef __SWITCH__
+	if (translation == 0)
+		fb->GetRenderPassManager()->TextureFirstUsed(base, GetScaleFlags());
+#endif
 
 	auto descriptor = fb->GetDescriptorSetManager()->AllocateTextureDescriptorSet(max(numLayers, SHADER_MIN_REQUIRED_TEXTURE_LAYERS));
 

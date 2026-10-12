@@ -284,6 +284,9 @@ public:
 	// Dynamic resolution of the 3D view (Switch Vulkan): shrinks mSceneViewport
 	// for the main view; the backend scales it back up before the HUD.
 	virtual void ScaleSceneViewport() {}
+	// End of the level precache: upload the textures this game used before
+	// (Switch Vulkan keeps a list per IWAD + mods)
+	virtual void PrecacheUsedTextures() {}
 	virtual void SetSaveBuffers(bool yes) {}
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }

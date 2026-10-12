@@ -176,6 +176,12 @@ public:
 	// loads, behind the loading screen.
 	void WarmupPipelines();
 
+	// The same for textures: every untranslated material first drawn during a
+	// level is listed (rdoom-textures-<hash>.txt) and uploaded again at the
+	// end of the next level's precache.
+	void TextureFirstUsed(FGameTexture *tex, int scaleFlags);
+	void PrecacheListedTextures();
+
 private:
 	int mUnsavedPipelines = 0;
 	uint64_t mLastPipelineMs = 0;
@@ -189,8 +195,12 @@ private:
 	};
 	std::vector<WarmEntry> mWarm;
 	bool mWarmLoaded = false, mWarmDirty = false, mWarming = false;
-	FString WarmFilename();
+	FString WarmFilename(const char *kind = "pipelines", const char *ext = "bin");
 	void LoadWarmList();
+	struct TextureUse { FString Name; int UseType, ScaleFlags; };
+	std::vector<TextureUse> mTexList;
+	bool mTexLoaded = false, mTexDirty = false, mTexWarming = false;
+	void LoadTextureList();
 
 	VulkanRenderDevice* fb = nullptr;
 

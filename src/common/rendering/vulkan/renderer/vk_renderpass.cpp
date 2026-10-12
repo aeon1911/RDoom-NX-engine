@@ -40,6 +40,9 @@
 #include "i_specialpaths.h"
 #include "cmdlib.h"
 #include "filesystem.h"
+#include "hw_material.h"
+#include "texturemanager.h"
+#include "gamestate.h"
 #include "nx_perf.h"
 #include "c_cvars.h"
 
@@ -126,7 +129,7 @@ void VkRenderPassManager::PipelineCreated(const VkRenderPassKey &passKey, const 
 #endif
 }
 
-FString VkRenderPassManager::WarmFilename()
+FString VkRenderPassManager::WarmFilename(const char *kind, const char *ext)
 {
 	// one list per game: hash of the loaded resource files
 	uint32_t h = 2166136261u;
@@ -137,7 +140,7 @@ FString VkRenderPassManager::WarmFilename()
 			h = (h ^ (uint8_t)*p) * 16777619u;
 	}
 	FString path = M_GetCachePath(true);
-	path.AppendFormat("/rdoom-pipelines-%08x.bin", h);
+	path.AppendFormat("/rdoom-%s-%08x.%s", kind, h, ext);
 	return path;
 }
 
@@ -192,6 +195,82 @@ void VkRenderPassManager::WarmupPipelines()
 #endif
 }
 
+void VkRenderPassManager::LoadTextureList()
+{
+	if (mTexLoaded)
+		return;
+	mTexLoaded = true;
+	FileReader fr;
+	if (!fr.OpenFile(WarmFilename("textures", "txt").GetChars()))
+		return;
+	auto data = fr.Read();
+	FString text((const char *)data.data(), data.size());
+	auto lines = text.Split("\n");
+	for (auto &line : lines)
+	{
+		int useType = 0, scaleFlags = 0;
+		char name[64] = "";
+		if (sscanf(line.GetChars(), "%d %d %63s", &useType, &scaleFlags, name) == 3 && mTexList.size() < 2000)
+			mTexList.push_back({ name, useType, scaleFlags });
+	}
+}
+
+void VkRenderPassManager::TextureFirstUsed(FGameTexture *tex, int scaleFlags)
+{
+#ifdef __SWITCH__
+	if (mTexWarming || !tex || gamestate != GS_LEVEL)
+		return;
+	// walls and flats are precached with the map already; what shows up by
+	// surprise are effect sprites (fire, smoke, gore) and decals
+	const ETextureType ut = tex->GetUseType();
+	if (ut != ETextureType::Sprite && ut != ETextureType::Decal && ut != ETextureType::SkinSprite)
+		return;
+	const FString &name = tex->GetName();
+	if (name.IsEmpty() || name.Len() > 60 || name.IndexOf(' ') >= 0)
+		return;
+	LoadTextureList();
+	const int useType = (int)tex->GetUseType();
+	for (auto &t : mTexList)
+		if (t.UseType == useType && t.ScaleFlags == scaleFlags && t.Name.CompareNoCase(name) == 0)
+			return;
+	if (mTexList.size() < 2000)
+	{
+		mTexList.push_back({ name, useType, scaleFlags });
+		mTexDirty = true;
+		mUnsavedPipelines++;	// the saver below also writes this list
+		mLastPipelineMs = I_msTime();
+	}
+#endif
+}
+
+void VkRenderPassManager::PrecacheListedTextures()
+{
+#ifdef __SWITCH__
+	LoadTextureList();
+	if (mTexList.empty())
+		return;
+	mTexWarming = true;
+	const uint64_t start = I_msTime();
+	int done = 0;
+	for (auto &t : mTexList)
+	{
+		FTextureID id = TexMan.CheckForTexture(t.Name.GetChars(), (ETextureType)t.UseType, FTextureManager::TEXMAN_TryAny);
+		FGameTexture *tex = id.isValid() ? TexMan.GetGameTexture(id) : nullptr;
+		if (!tex || !tex->isValid())
+			continue;
+		FMaterial *mat = FMaterial::ValidateTexture(tex, t.ScaleFlags, true);
+		if (!mat)
+			continue;
+		fb->PrecacheMaterial(mat, 0);
+		done++;
+	}
+	mTexWarming = false;
+	FString n;
+	n.Format("%d of %d textures in %d ms", done, (int)mTexList.size(), (int)(I_msTime() - start));
+	RDoom_SessionSet("vulkan_texture_warmup", n.GetChars());
+#endif
+}
+
 void VkRenderPassManager::SaveCacheWhenIdle()
 {
 #ifdef __SWITCH__
@@ -208,6 +287,14 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	}
 	catch (...)
 	{
+	}
+	if (mTexDirty)
+	{
+		mTexDirty = false;
+		FString out;
+		for (auto &t : mTexList)
+			out.AppendFormat("%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
+		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.GetChars(), out.Len());
 	}
 	if (mWarmDirty)
 	{

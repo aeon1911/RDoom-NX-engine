@@ -331,6 +331,11 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 	delete[] spritelist;
 	delete[] modellist;
 
+	// after the unused textures were released: the effects this game spawned
+	// before (explosion fire and smoke, gore...) are uploaded behind the
+	// loading screen instead of the first time they appear
+	screen->PrecacheUsedTextures();
+
 	// Switch port: decode the sprites of everything in the level in the background
 	{
 		TMap<PClassActor*, bool>::Iterator pit(actorhitlist);

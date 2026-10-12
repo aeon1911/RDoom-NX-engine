@@ -301,49 +301,43 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		mDynScale = clamp((float)rd_dynres_force, 0.25f, 1.0f);
 		return;
 	}
-	double frameMs, sceneMs;
-	if (!mCommands->TakeGpuFrameTime(frameMs, sceneMs))
-		return;
 	const float minScale = clamp((float)rd_dynres_min, 0.4f, 1.0f);
-	if (!rd_dynres || rd_gpubench > 0 || gamestate != GS_LEVEL || frameMs <= 0)
+	if (!rd_dynres || rd_gpubench > 0 || gamestate != GS_LEVEL)
 	{
 		mDynScale = 1.0f;
 		mDynCalmFrames = 0;
 		return;
 	}
-	const double target = clamp((double)rd_dynres_target, 6.0, 30.0);
-	const double restMs = frameMs - sceneMs;	// post-processing, 2D, present (+ the upscale when scaled)
-	if (mDynScale >= 0.999f)
-		mDynRestAtFull = mDynRestAtFull * 0.9 + restMs * 0.1;
-	if (frameMs > target && sceneMs > 0.5)
+	// The GPU timestamps of a frame include the gaps between its submits (the
+	// scene goes out early, the rest at the end), so they overstate the GPU
+	// load. What matters is simpler: the previous frame missed vsync and this
+	// frame had to wait for the GPU (frame N-2) before it could start.
+	const double frameMs = NXPerf_LastFrameMS();
+	const double waitMs = nxperf.vkpending_ms;	// this frame's wait at BeginFrame
+	const double budget = 1000.0 / 60.0;
+	if (frameMs > budget + 1.5 && waitMs > 2.5)
 	{
-		// the 3D view's cost follows its area; the rest of the frame stays
-		const double wantScene = max(target - restMs, sceneMs * 0.25);
-		float s = mDynScale * (float)sqrt(wantScene / sceneMs);
+		float s = mDynScale * (float)sqrt(budget / frameMs);
 		s = max(s, mDynScale * 0.8f);	// at most 20% per step
 		mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
 		mDynCalmFrames = 0;
 	}
-	else if (mDynScale < 1.0f && sceneMs > 0)
+	else if (mDynScale < 1.0f && frameMs < budget + 0.6 && waitMs < 1.5)
 	{
-		// one step up only when the frame predicted for it fits with room to
-		// spare; at full scale the upscale pass disappears from the frame
-		const float next = min(1.0f, mDynScale + 0.1f);
-		const double ratio = (next * next) / (mDynScale * mDynScale);
-		const double predicted = (next >= 0.999f ? mDynRestAtFull : restMs) + sceneMs * ratio;
-		if (predicted < target * 0.9)
+		if (++mDynCalmFrames >= 45)
 		{
-			if (++mDynCalmFrames >= 15)
-			{
-				mDynScale = next;
-				mDynCalmFrames = 0;
-			}
-		}
-		else
+			mDynScale = min(1.0f, mDynScale + 0.1f);
 			mDynCalmFrames = 0;
+		}
 	}
-	else
+	else if (waitMs >= 1.5)
 		mDynCalmFrames = 0;
+}
+
+void VulkanRenderDevice::PrecacheUsedTextures()
+{
+	if (mRenderPassManager)
+		mRenderPassManager->PrecacheListedTextures();
 }
 
 void VulkanRenderDevice::ScaleSceneViewport()
@@ -362,6 +356,7 @@ void VulkanRenderDevice::ScaleSceneViewport()
 #else
 void VulkanRenderDevice::UpdateDynamicResolution() {}
 void VulkanRenderDevice::ScaleSceneViewport() {}
+void VulkanRenderDevice::PrecacheUsedTextures() {}
 #endif
 
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)

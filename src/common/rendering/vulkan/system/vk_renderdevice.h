@@ -117,6 +117,7 @@ public:
 	int PerFrameSlot() const override;
 	void SyncNextFrame() override;
 	void ScaleSceneViewport() override;
+	void PrecacheUsedTextures() override;
 #ifdef __SWITCH__
 	bool AllowSSAO() override;
 #endif
