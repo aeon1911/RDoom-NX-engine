@@ -41,7 +41,10 @@ CVAR(Bool, rd_vk_zcull, false, 0)
 // post-processing pass moves through the Tegra X1's shared memory bus; HDR
 // effects (bloom, tonemap) then work in the 0..1 range. Both settings take
 // effect on the next frame (the buffers are rebuilt).
-CVAR(Int, rd_vk_scenefmt, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Default RGBA8: with bloom and tonemapping off (the Switch profiles) the image
+// on screen is the same, and translucent layers (Brutal Doom's smoke) blend at
+// full rate instead of the half rate and double traffic of RGBA16F.
+CVAR(Int, rd_vk_scenefmt, 2, CVAR_GLOBALCONFIG)
 VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage)
 {
 	if (rd_vk_zcull)

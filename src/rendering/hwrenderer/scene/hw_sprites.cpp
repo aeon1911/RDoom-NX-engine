@@ -98,6 +98,10 @@ extern bool (*NXSpriteDrawableHook)(FGameTexture *gtex, int translation, int sca
 //
 //==========================================================================
 
+#ifdef __SWITCH__
+CVAR(Float, rd_sprite_alphacut, 0.02f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
+
 void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 {
 	// Switch: an image that is still being decoded (or waits for its upload)
@@ -134,11 +138,20 @@ void HWSprite::DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent)
 		state.SetRenderStyle(RenderStyle);
 		state.SetTextureMode(RenderStyle);
 
+#ifdef __SWITCH__
+		// Switch: fragments that would add less than rd_sprite_alphacut of
+		// colour are discarded instead of blended - the empty borders of large
+		// smoke and fire sprites cost blending bandwidth for nothing
+		const float cut = clamp((float)rd_sprite_alphacut, 0.f, 0.1f);
+#else
+		const float cut = 0.f;
+#endif
 		if (hw_styleflags == STYLEHW_NoAlphaTest)
 		{
-			state.AlphaFunc(Alpha_GEqual, 0.f);
+			state.AlphaFunc(Alpha_GEqual, cut);
 		}
 		else if (!texture || !texture->GetTranslucency()) state.AlphaFunc(Alpha_GEqual, gl_mask_sprite_threshold);
+		else if (cut > 0.f) state.AlphaFunc(Alpha_GEqual, cut);
 		else state.AlphaFunc(Alpha_Greater, 0.f);
 
 		if (RenderStyle.BlendOp == STYLEOP_Shadow)

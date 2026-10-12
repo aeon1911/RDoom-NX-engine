@@ -884,9 +884,24 @@ private:
 
 /////////////////////////////////////////////////////////////////////////////
 
+/////////////////////////////////////////////////////////////////////////////
+
+// Dynamic resolution (Switch): stretches the 3D view, drawn into the smaller
+// scene viewport, over the full one with a single textured draw (cheaper on
+// NVK than vkCmdBlitImage, which costs a meta pass per call).
+class PPSceneUpscale
+{
+public:
+	void Render(PPRenderState *renderstate, const IntRect &to);
+
+private:
+	PPShader Upscale = { "shaders/pp/upscale.fp", "", ExtractUniforms::Desc() };
+};
+
 class Postprocess
 {
 public:
+	PPSceneUpscale upscale;
 	PPBloom bloom;
 	PPLensDistort lens;
 	PPFXAA fxaa;

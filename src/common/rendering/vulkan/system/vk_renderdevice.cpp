@@ -22,6 +22,8 @@
 
 #include <cinttypes>
 #include "gamestate.h"
+#include "vulkan/renderer/vk_pprenderstate.h"
+#include "hwrenderer/postprocessing/hw_postprocess.h"
 
 #include <zvulkan/vulkanbuilders.h>
 #include <zvulkan/vulkancompatibledevice.h>
@@ -289,6 +291,7 @@ CVAR(Bool, rd_dynres, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, rd_dynres_target, 12.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, rd_dynres_min, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 CVAR(Float, rd_dynres_force, 0.0f, 0)	// tests: fixed 3D scale (0 = automatic)
+CVAR(Bool, rd_dynres_blit, false, 0)	// tests: stretch with vkCmdBlitImage instead of a draw
 EXTERN_CVAR(Int, rd_gpubench)
 
 void VulkanRenderDevice::UpdateDynamicResolution()
@@ -309,24 +312,35 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		return;
 	}
 	const double target = clamp((double)rd_dynres_target, 6.0, 30.0);
+	const double restMs = frameMs - sceneMs;	// post-processing, 2D, present (+ the upscale when scaled)
+	if (mDynScale >= 0.999f)
+		mDynRestAtFull = mDynRestAtFull * 0.9 + restMs * 0.1;
 	if (frameMs > target && sceneMs > 0.5)
 	{
 		// the 3D view's cost follows its area; the rest of the frame stays
-		const double fixedMs = frameMs - sceneMs;
-		const double wantScene = max(target - fixedMs, sceneMs * 0.25);
+		const double wantScene = max(target - restMs, sceneMs * 0.25);
 		float s = mDynScale * (float)sqrt(wantScene / sceneMs);
 		s = max(s, mDynScale * 0.8f);	// at most 20% per step
 		mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
 		mDynCalmFrames = 0;
 	}
-	else if (frameMs < target * 0.8 && mDynScale < 1.0f)
+	else if (mDynScale < 1.0f && sceneMs > 0)
 	{
-		// back up slowly, only after the GPU has had room for a while
-		if (++mDynCalmFrames >= 30)
+		// one step up only when the frame predicted for it fits with room to
+		// spare; at full scale the upscale pass disappears from the frame
+		const float next = min(1.0f, mDynScale + 0.1f);
+		const double ratio = (next * next) / (mDynScale * mDynScale);
+		const double predicted = (next >= 0.999f ? mDynRestAtFull : restMs) + sceneMs * ratio;
+		if (predicted < target * 0.9)
 		{
-			mDynScale = min(1.0f, mDynScale + 0.05f);
-			mDynCalmFrames = 0;
+			if (++mDynCalmFrames >= 15)
+			{
+				mDynScale = next;
+				mDynCalmFrames = 0;
+			}
 		}
+		else
+			mDynCalmFrames = 0;
 	}
 	else
 		mDynCalmFrames = 0;
@@ -367,7 +381,13 @@ void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash
 	if (mSceneScaled)
 	{
 		mSceneScaled = false;
-		mPostprocess->UpscaleScene(mSceneSmall, mSceneFull);
+		if (rd_dynres_blit)
+			mPostprocess->UpscaleScene(mSceneSmall, mSceneFull);
+		else
+		{
+			VkPPRenderState renderstate(this);
+			hw_postprocess.upscale.Render(&renderstate, mSceneFull);	// reads mSceneViewport (still the small one)
+		}
 		mSceneViewport = mSceneFull;
 	}
 #endif

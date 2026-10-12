@@ -532,6 +532,24 @@ void PPCameraExposure::UpdateTextures(int width, int height)
 
 /////////////////////////////////////////////////////////////////////////////
 
+void PPSceneUpscale::Render(PPRenderState *renderstate, const IntRect &to)
+{
+	ExtractUniforms uniforms;
+	uniforms.Scale = screen->SceneScale();	// the smaller viewport the scene was drawn into
+	uniforms.Offset = screen->SceneOffset();
+
+	renderstate->PushGroup("upscale");
+	renderstate->Clear();
+	renderstate->Shader = &Upscale;
+	renderstate->Uniforms.Set(uniforms);
+	renderstate->Viewport = to;
+	renderstate->SetInputCurrent(0, PPFilterMode::Linear);
+	renderstate->SetOutputNext();
+	renderstate->SetNoBlend();
+	renderstate->Draw();
+	renderstate->PopGroup();
+}
+
 void PPColormap::Render(PPRenderState *renderstate, int fixedcm, float flash)
 {
 	ColormapUniforms uniforms;
