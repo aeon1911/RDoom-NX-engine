@@ -253,7 +253,12 @@ void RDoom_NXEarlyInit()
 		RLOG_W("boot", "previous session lost the GPU: clearing shader caches (%d files)", RDoom_ClearShaderCaches());
 		RemoveFile(RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
 		rename(RDOOM_SD_ROOT "/logs/gpu-lost.txt", RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt");
-		if (g_gpuStep < RDOOM_GPU_STEPS)
+		// a loss recorded by an older build says nothing about this one: the
+		// caches are still cleared, but the experiments start from step 0
+		std::string lost;
+		ReadFile(RDOOM_SD_ROOT "/logs/gpu-lost-previous.txt", lost);
+		const bool sameBuild = lost.find(std::string("build: ") + RDOOM_GIT_DESCRIBE + "\n") != std::string::npos;
+		if (sameBuild && g_gpuStep < RDOOM_GPU_STEPS)
 			g_gpuStep++;
 		char buf[192];
 		snprintf(buf, sizeof(buf), "%d %s\n", g_gpuStep, RDOOM_GIT_DESCRIBE);
@@ -380,6 +385,7 @@ void RDoom_VulkanDeviceLost(const char *what)
 {
 	RDoom_SessionSet("vulkan_device_lost", what ? what : "?");
 	std::string out = std::string("GPU lost: ") + (what ? what : "?") + "\n";
+	out += std::string("build: ") + RDOOM_GIT_DESCRIBE + "\n";
 	for (auto &kv : g_session)
 		out += kv.first + ": " + kv.second + "\n";
 	FILE *f = fopen(RDOOM_SD_ROOT "/logs/gpu-lost.txt", "w");
