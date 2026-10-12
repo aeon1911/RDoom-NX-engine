@@ -34,7 +34,8 @@ class HWViewpointBuffer
 	unsigned int mUploadIndex;
 	unsigned int mLastMappedIndex;
 	unsigned int mByteSize;
-	TArray<bool> mClipPlaneInfo;
+	TArray<bool> mClipPlaneInfo;	// indexed from mSlotBase
+	unsigned int mSlotBase = 0;	// first viewpoint of this frame's region (see DFrameBuffer::PerFrameSlot)
 
 	unsigned int mBlockSize;
 

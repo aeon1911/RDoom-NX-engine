@@ -10,6 +10,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <mutex>
 #include <string>
 #include <vector>
 #include <switch.h>
@@ -175,6 +176,10 @@ void RDoom_Crumb(const char *what)
 	close(fd);
 }
 
+// background writer (defined with the session report below)
+static void StartFlushThread();
+static void FlushOnce();
+
 static bool g_prevGpuLost = false;
 static int g_gpuStep = 0;
 
@@ -184,7 +189,8 @@ static void RotateLogs()
 {
 	static const char *const files[] = {
 		"logs/rdoom.log", "logs/engine.log", "logs/engine-stderr.log", "logs/engine-session.txt",
-		"logs/error.log", "logs/boot.log", "logs/last-launch.txt", "perf.log", "phase.log" };
+		"logs/error.log", "logs/boot.log", "logs/last-launch.txt", "logs/perf.log", "logs/phase.log",
+		"perf.log", "phase.log" /* written next to the .nro by older builds */ };
 	// (gpu-lost.txt stays in place: the start-up below reads it)
 	// keep five sessions: anterior (newest) .. anterior-5 (oldest)
 	{
@@ -228,10 +234,12 @@ void RDoom_NXEarlyInit()
 	p.EnsureLayout();
 	LogOpen(PathJoin(p.Logs(), "rdoom.log"), true);
 	// engine console output (Printf -> stdout) and driver messages (stderr)
+	// fully buffered: the background writer flushes them (see FlushOnce)
 	if (freopen(RDOOM_SD_ROOT "/logs/engine.log", "w", stdout))
-		setvbuf(stdout, nullptr, _IOLBF, 4096);
+		setvbuf(stdout, nullptr, _IOFBF, 64 * 1024);
 	if (freopen(RDOOM_SD_ROOT "/logs/engine-stderr.log", "w", stderr))
-		setvbuf(stderr, nullptr, _IONBF, 0);
+		setvbuf(stderr, nullptr, _IOFBF, 32 * 1024);
+	StartFlushThread();
 	unlink(RDOOM_SD_ROOT "/logs/engine-session.txt");
 	RLOG_I("boot", "%s (%s, %s), engine %s", RDOOM_VERSION_STRING, RDOOM_BUILD_DATE, RDOOM_GIT_DESCRIBE, RDOOM_ENGINE_VERSION);
 	RLOG_I("boot", "clock policy: stock (RDoom never changes CPU/GPU/memory clocks)");
@@ -347,6 +355,7 @@ void RDoom_NXAtExit()
 		envSetNextLoad(g_nroPath.c_str(), args.c_str());
 		RLOG_I("boot", "returning to the launcher (%s)", g_nroPath.c_str());
 	}
+	FlushOnce();
 	LogClose();
 }
 
@@ -356,25 +365,139 @@ void RDoom_NXAtExit()
 
 static std::vector<std::pair<std::string, std::string>> g_session;
 
+// ---------------------------------------------------------------------------
+// Background writer: SD card writes take milliseconds to tens of milliseconds
+// on the Switch, and the game used to make them inside frames (every log line,
+// every new pipeline, the session report every 600 frames, sounds printing
+// decoder notes to stderr). Logs are now fully buffered and this low-priority
+// thread flushes them, rewrites engine-session.txt when it changed and writes
+// queued files (the pipeline cache) every two seconds. Quitting with HOME
+// loses at most the last two seconds of log.
+
+static std::mutex g_ioMutex;	// g_session, g_sessionDirty, g_fileQueue
+static bool g_sessionDirty = false;
+static std::vector<std::pair<std::string, std::vector<uint8_t>>> g_fileQueue;
+static Thread g_flushThread;
+static volatile bool g_flushRun = false;
+void NXPerf_FlushFile();
+
+static void WriteWhole(const std::string &path, const void *data, size_t size)
+{
+	const std::string tmp = path + ".tmp";
+	FILE *f = fopen(tmp.c_str(), "wb");
+	if (!f)
+		return;
+	bool ok = fwrite(data, 1, size, f) == size;
+	ok &= fclose(f) == 0;
+	if (ok)
+	{
+		remove(path.c_str());
+		rename(tmp.c_str(), path.c_str());
+	}
+	else
+		remove(tmp.c_str());
+}
+
+static void FlushOnce()
+{
+	std::string session;
+	bool writeSession = false;
+	decltype(g_fileQueue) files;
+	{
+		std::lock_guard<std::mutex> lock(g_ioMutex);
+		if (g_sessionDirty)
+		{
+			for (auto &kv : g_session)
+				session += kv.first + ": " + kv.second + "\n";
+			g_sessionDirty = false;
+			writeSession = true;
+		}
+		files.swap(g_fileQueue);
+	}
+	if (writeSession)
+	{
+		FILE *f = fopen(RDOOM_SD_ROOT "/logs/engine-session.txt", "w");
+		if (f)
+		{
+			fwrite(session.data(), 1, session.size(), f);
+			fclose(f);
+		}
+	}
+	for (auto &file : files)
+		WriteWhole(file.first, file.second.data(), file.second.size());
+	LogFlush();
+	fflush(stdout);
+	fflush(stderr);
+	NXPerf_FlushFile();
+}
+
+static void FlushThreadMain(void *)
+{
+	while (g_flushRun)
+	{
+		svcSleepThread(2000000000ULL);
+		FlushOnce();
+	}
+}
+
+static void StartFlushThread()
+{
+	if (g_flushRun)
+		return;
+	// lowest priority on the default core: it sleeps in SD card calls
+	if (R_SUCCEEDED(threadCreate(&g_flushThread, FlushThreadMain, nullptr, nullptr, 0x10000, 0x3F, -2)))
+	{
+		g_flushRun = true;
+		if (R_FAILED(threadStart(&g_flushThread)))
+		{
+			g_flushRun = false;
+			threadClose(&g_flushThread);
+		}
+	}
+	LogSetFlushEachLine(!g_flushRun);
+}
+
+void RDoom_FlushLogsNow()
+{
+	FlushOnce();
+}
+
+void RDoom_WriteFileAsync(const char *path, const void *data, size_t size)
+{
+	std::vector<uint8_t> bytes((const uint8_t *)data, (const uint8_t *)data + size);
+	if (!g_flushRun)
+	{
+		WriteWhole(path, bytes.data(), bytes.size());
+		return;
+	}
+	std::lock_guard<std::mutex> lock(g_ioMutex);
+	for (auto &file : g_fileQueue)
+		if (file.first == path)
+		{
+			file.second.swap(bytes);
+			return;
+		}
+	g_fileQueue.emplace_back(path, std::move(bytes));
+}
+
 void RDoom_SessionSet(const char *key, const char *value)
 {
-	for (auto &kv : g_session)
-		if (kv.first == key)
-		{
-			kv.second = value;
-			goto write;
-		}
-	g_session.push_back({ key, value });
-write:
-	std::string out;
-	for (auto &kv : g_session)
-		out += kv.first + ": " + kv.second + "\n";
-	FILE *f = fopen(RDOOM_SD_ROOT "/logs/engine-session.txt", "w");
-	if (f)
 	{
-		fwrite(out.data(), 1, out.size(), f);
-		fclose(f);
+		std::lock_guard<std::mutex> lock(g_ioMutex);
+		bool found = false;
+		for (auto &kv : g_session)
+			if (kv.first == key)
+			{
+				kv.second = value;
+				found = true;
+				break;
+			}
+		if (!found)
+			g_session.push_back({ key, value });
+		g_sessionDirty = true;
 	}
+	if (!g_flushRun)
+		FlushOnce();
 	RLOG_I("session", "%s: %s", key, value);
 }
 
@@ -384,10 +507,14 @@ write:
 void RDoom_VulkanDeviceLost(const char *what)
 {
 	RDoom_SessionSet("vulkan_device_lost", what ? what : "?");
+	FlushOnce();
 	std::string out = std::string("GPU lost: ") + (what ? what : "?") + "\n";
 	out += std::string("build: ") + RDOOM_GIT_DESCRIBE + "\n";
-	for (auto &kv : g_session)
-		out += kv.first + ": " + kv.second + "\n";
+	{
+		std::lock_guard<std::mutex> lock(g_ioMutex);
+		for (auto &kv : g_session)
+			out += kv.first + ": " + kv.second + "\n";
+	}
 	FILE *f = fopen(RDOOM_SD_ROOT "/logs/gpu-lost.txt", "w");
 	if (f)
 	{

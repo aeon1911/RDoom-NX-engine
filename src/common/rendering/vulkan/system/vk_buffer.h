@@ -77,11 +77,13 @@ public:
 	~VkStreamBuffer();
 
 	uint32_t NextStreamDataBlock();
-	void Reset() { mStreamDataOffset = 0; }
+	// starts the frame's region (see DFrameBuffer::PerFrameSlot)
+	void Reset();
 
 	VkHardwareDataBuffer* UniformBuffer = nullptr;
 
 private:
 	uint32_t mBlockSize = 0;
 	uint32_t mStreamDataOffset = 0;
+	uint32_t mRegionSize = 0, mRegionEnd = 0;
 };

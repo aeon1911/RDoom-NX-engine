@@ -40,6 +40,7 @@
 VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage);
 #endif
 #include "vk_nxupload.h"
+#include "nx_perf.h"
 
 VkHardwareTexture::VkHardwareTexture(VulkanRenderDevice* fb, int numchannels) : fb(fb)
 {
@@ -149,6 +150,8 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 		throw CVulkanError("Trying to create zero size texture");
 
 	int totalSize = w * h * pixelsize;
+	NXPERF_SCOPE(tex_ms, &nxperf.textures);	// perf.log "textures n/ms/kpix"
+	nxperf.texpixels += (int64_t)w * h;
 
 	mImage.Image = ImageBuilder()
 		.Format(format)
@@ -195,7 +198,9 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 	// If we queued more than 64 MB of data already: wait until the uploads finish before continuing
 	fb->GetCommands()->TransferDeleteList->Add(std::move(stagingBuffer));
 #if defined(__SWITCH__)
-	if (fb->GetCommands()->TransferDeleteList->TotalSize > 16 * 1024 * 1024)
+	// every overflow waits for the GPU to go idle (a visible hitch when a
+	// door opens on a new area or an explosion shows its frames the first time)
+	if (fb->GetCommands()->TransferDeleteList->TotalSize > 48 * 1024 * 1024)
 #else
 	if (fb->GetCommands()->TransferDeleteList->TotalSize > 64 * 1024 * 1024)
 #endif

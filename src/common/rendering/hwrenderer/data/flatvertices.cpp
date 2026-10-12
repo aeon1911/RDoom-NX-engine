@@ -135,11 +135,26 @@ void FFlatVertexBuffer::OutputResized(int width, int height)
 //
 //==========================================================================
 
+void FFlatVertexBuffer::Reset()
+{
+	// the dynamic part after the level geometry is split per frame
+	mCurIndex = mIndex;
+	mSlotEnd = BUFFER_SIZE_TO_USE;
+	if (screen->PerFrameSlots() == 2 && mIndex < BUFFER_SIZE_TO_USE)
+	{
+		const unsigned half = (BUFFER_SIZE_TO_USE - mIndex) / 2;
+		if (screen->PerFrameSlot() == 0)
+			mSlotEnd = mIndex + half;
+		else
+			mCurIndex = mIndex + half;
+	}
+}
+
 std::pair<FFlatVertex *, unsigned int> FFlatVertexBuffer::AllocVertices(unsigned int count)
 {
 	FFlatVertex *p = GetBuffer();
 	auto index = mCurIndex.fetch_add(count);
-	if (index + count >= BUFFER_SIZE_TO_USE)
+	if (index + count >= mSlotEnd)
 	{
 		// If a single scene needs 2'000'000 vertices there must be something very wrong.
 		I_FatalError("Out of vertex memory. Tried to allocate more than %u vertices for a single frame", index + count);

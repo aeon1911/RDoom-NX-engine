@@ -39,6 +39,8 @@
 #include "v_2ddrawer.h"
 #include "i_specialpaths.h"
 #include "cmdlib.h"
+#include "nx_perf.h"
+#include "c_cvars.h"
 
 VkRenderPassManager::VkRenderPassManager(VulkanRenderDevice* fb) : fb(fb)
 {
@@ -59,6 +61,11 @@ VkRenderPassManager::VkRenderPassManager(VulkanRenderDevice* fb) : fb(fb)
 			if (fr.Read(data.data(), data.size()) == (FileReader::Size)data.size())
 			{
 				builder.InitialData(data.data(), data.size());
+#ifdef __SWITCH__
+				FString n;
+				n.Format("%u KB", (unsigned)(data.size() / 1024));
+				RDoom_SessionSet("vulkan_pipeline_cache_loaded", n.GetChars());
+#endif
 			}
 		}
 	}
@@ -85,6 +92,26 @@ VkRenderPassManager::~VkRenderPassManager()
 	catch (...)
 	{
 	}
+}
+
+void VkRenderPassManager::SaveCacheWhenIdle()
+{
+#ifdef __SWITCH__
+	if (mUnsavedPipelines == 0 || VulkanDeviceWasLost || I_msTime() - mLastPipelineMs < 3000)
+		return;
+	mUnsavedPipelines = 0;
+	try
+	{
+		auto data = PipelineCache->GetCacheData();
+		RDoom_WriteFileAsync(CacheFilename.GetChars(), data.data(), data.size());
+		FString n;
+		n.Format("%u KB", (unsigned)(data.size() / 1024));
+		RDoom_SessionSet("vulkan_pipeline_cache_saved", n.GetChars());
+	}
+	catch (...)
+	{
+	}
+#endif
 }
 
 void VkRenderPassManager::RenderBuffersReset()
@@ -243,7 +270,11 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key)
 {
 	auto &item = Pipelines[key];
 	if (!item)
+	{
+		NXPERF_SCOPE(shader_ms, &nxperf.shaders);	// perf.log "shaders n/ms": pipelines created in that frame
 		item = CreatePipeline(key);
+		fb->GetRenderPassManager()->PipelineCreated();
+	}
 	return item.get();
 }
 
@@ -368,8 +399,13 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 			key.RenderStyle.BlendOp, key.RenderStyle.SrcAlpha, key.RenderStyle.DestAlpha, key.RenderStyle.Flags,
 			key.DepthTest, key.DepthWrite, key.DepthFunc, key.DepthClamp, key.DepthBias, key.StencilTest, key.StencilPassOp, key.ColorMask, key.CullMode);
 		RDoom_SessionSet("vulkan_last_new_pipeline", d.GetChars());
-		FString c = "new pipeline " + d;
-		RDoom_Crumb(c.GetChars());
+		// boot.log is written synchronously: only in the GPU trace mode
+		EXTERN_CVAR(Int, rd_vk_drawlog)
+		if (rd_vk_drawlog > 0)
+		{
+			FString c = "new pipeline " + d;
+			RDoom_Crumb(c.GetChars());
+		}
 		extern int rd_vk_drawlog_burst;
 		rd_vk_drawlog_burst = 50;
 	}

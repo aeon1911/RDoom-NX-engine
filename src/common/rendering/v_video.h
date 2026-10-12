@@ -271,8 +271,16 @@ public:
 	virtual void SetSceneRenderTarget(bool useSSAO) {}
 	virtual void UpdateShadowMap() {}
 	virtual void WaitForCommands(bool finish) {}
-	virtual void WaitForPendingFrame() {}
-	virtual bool AllowSSAO() { return true; }	// false when the depth buffer cannot be sampled (Switch Vulkan without ZCULL)	// Vulkan frame overlap: the GPU is done with the last presented frame
+	virtual void WaitForPendingFrame() {}	// Vulkan frame overlap: the GPU is done with every presented frame
+	virtual bool AllowSSAO() { return true; }	// false when the depth buffer cannot be sampled (Switch Vulkan without ZCULL)
+	// Per-frame GPU data (dynamic lights, bones, viewpoints, dynamic vertices)
+	// is split into PerFrameSlots() regions and the frame being recorded writes
+	// region PerFrameSlot(), so the CPU can fill frame N+1 while the GPU still
+	// reads frame N. SyncNextFrame: a region moved (buffer growth), the next
+	// frame must wait for all GPU work before reusing any of it.
+	virtual int PerFrameSlots() const { return 1; }
+	virtual int PerFrameSlot() const { return 0; }
+	virtual void SyncNextFrame() {}
 	virtual void SetSaveBuffers(bool yes) {}
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }

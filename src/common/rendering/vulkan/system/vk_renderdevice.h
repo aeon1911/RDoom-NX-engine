@@ -113,6 +113,9 @@ public:
 
 	void WaitForCommands(bool finish) override;
 	void WaitForPendingFrame() override;
+	int PerFrameSlots() const override;
+	int PerFrameSlot() const override;
+	void SyncNextFrame() override;
 #ifdef __SWITCH__
 	bool AllowSSAO() override;
 #endif
@@ -125,6 +128,8 @@ private:
 	void CopyScreenToBuffer(int w, int h, uint8_t *data) override;
 
 	std::unique_ptr<VkCommandBufferManager> mCommands;
+
+	bool mFrameBegun = false;	// BeginFrame ran for the frame being recorded
 	std::unique_ptr<VkBufferManager> mBufferManager;
 	std::unique_ptr<VkSamplerManager> mSamplerManager;
 	std::unique_ptr<VkTextureManager> mTextureManager;

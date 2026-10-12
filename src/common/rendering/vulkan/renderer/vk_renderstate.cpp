@@ -591,6 +591,9 @@ void VkRenderState::BeginFrame()
 {
 	mMaterial.Reset();
 	mApplyCount = 0;
+	// the frame writes its own region of the stream buffers (DFrameBuffer::PerFrameSlot)
+	mStreamBufferWriter.Reset();
+	mMatrixBufferWriter.Reset();
 }
 
 void VkRenderState::EndRenderPass()

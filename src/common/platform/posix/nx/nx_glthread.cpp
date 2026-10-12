@@ -250,7 +250,7 @@ void NX_Phase(const char *what)
 		if (seen[i] == what) return;
 	if (numSeen < 64) seen[numSeen++] = what;
 	if (lines >= 200) return;
-	FILE *f = fopen("phase.log", lines == 0 ? "w" : "a");
+	FILE *f = fopen("logs/phase.log", lines == 0 ? "w" : "a");
 	if (!f) return;
 	lines++;
 	fprintf(f, "%llu %s\n", (unsigned long long)gCrumbMainTime, what ? what : "?");

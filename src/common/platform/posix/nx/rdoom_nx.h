@@ -1,4 +1,5 @@
 #pragma once
+#include <stddef.h>
 // RDoom start-up flow on Horizon (rdoom_nx.cpp).
 
 #define RDOOM_SD_ROOT "sdmc:/switch/rdoom"
@@ -16,6 +17,11 @@ void RDoom_NXAtExit();
 // "key: value" lines in logs/engine-session.txt (renderer, device, errors).
 void RDoom_SessionSet(const char *key, const char *value);
 void RDoom_SessionLog(const char *category, const char *message);
+// Background writer (see rdoom_nx.cpp): logs and engine-session.txt reach the
+// SD card from a low-priority thread. FlushLogsNow writes everything at once
+// (exit, fatal error); WriteFileAsync queues a whole file (atomic replace).
+void RDoom_FlushLogsNow();
+void RDoom_WriteFileAsync(const char *path, const void *data, size_t size);
 // Appends one line to logs/boot.log with an unbuffered write (start-up steps).
 void RDoom_Crumb(const char *what);
 

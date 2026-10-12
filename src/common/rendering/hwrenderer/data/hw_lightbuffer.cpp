@@ -66,6 +66,7 @@ FLightBuffer::FLightBuffer(int pipelineNbr):
 #endif
 	}
 
+	mSlotSize = mBufferType ? mBufferSize / screen->PerFrameSlots() : mBufferSize;
 	Clear();
 }
 
@@ -76,7 +77,10 @@ FLightBuffer::~FLightBuffer()
 
 void FLightBuffer::Clear()
 {
-	mIndex = 0;
+	// light indices are absolute, so each frame simply uses its own region
+	const unsigned base = mBufferType ? screen->PerFrameSlot() * mSlotSize : 0;
+	mIndex = base;
+	mLimit = base + mSlotSize;
 
 	mPipelinePos++;
 	mPipelinePos %= mPipelineNbr;
@@ -118,7 +122,7 @@ int FLightBuffer::UploadLights(FDynLightData &data)
 	unsigned thisindex = mIndex.fetch_add(totalsize);
 	float parmcnt[] = { 0, float(size0), float(size0 + size1), float(size0 + size1 + size2) };
 
-	if (thisindex + totalsize <= mBufferSize)
+	if (thisindex + totalsize <= mLimit)
 	{
 		float *copyptr = mBufferPointer + thisindex*4;
 

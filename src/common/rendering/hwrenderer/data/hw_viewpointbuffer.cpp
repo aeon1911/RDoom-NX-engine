@@ -50,7 +50,8 @@ HWViewpointBuffer::~HWViewpointBuffer()
 
 void HWViewpointBuffer::CheckSize()
 {
-	if (mUploadIndex >= mBufferSize)
+	const unsigned slots = screen->PerFrameSlots();
+	if (mUploadIndex >= mSlotBase + mBufferSize / slots)
 	{
 		mBufferSize *= 2;
 		mByteSize *= 2;
@@ -58,6 +59,11 @@ void HWViewpointBuffer::CheckSize()
 		{
 			mBufferPipeline[n]->Resize(mByteSize);
 		}
+		// The per-frame regions grew: this frame keeps its base (and its clip
+		// plane indices) and may now reach into the next frame's new region,
+		// so the next frame waits for all GPU work before writing.
+		if (slots > 1)
+			screen->SyncNextFrame();
 	}
 }
 
@@ -67,7 +73,7 @@ int HWViewpointBuffer::Bind(FRenderState &di, unsigned int index)
 	{
 		mLastMappedIndex = index;
 		mBuffer->BindRange(&di, index * mBlockAlign, mBlockAlign);
-		di.EnableClipDistance(0, mClipPlaneInfo[index]);
+		di.EnableClipDistance(0, mClipPlaneInfo[index - mSlotBase]);
 	}
 	return index;
 }
@@ -111,9 +117,10 @@ int HWViewpointBuffer::SetViewpoint(FRenderState &di, HWViewpointUniforms *vp)
 
 void HWViewpointBuffer::Clear()
 {
-	bool needNewPipeline = mUploadIndex > 0; // Clear might be called multiple times before any actual rendering
+	bool needNewPipeline = mUploadIndex > mSlotBase; // Clear might be called multiple times before any actual rendering
 
-	mUploadIndex = 0;
+	mSlotBase = mBufferSize / screen->PerFrameSlots() * screen->PerFrameSlot();
+	mUploadIndex = mSlotBase;
 	mClipPlaneInfo.Clear();
 
 	if (needNewPipeline)

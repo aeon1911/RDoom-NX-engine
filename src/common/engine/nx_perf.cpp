@@ -109,6 +109,12 @@ double NXPerf_LastTicMS()
 	return lastTicMS;
 }
 
+void NXPerf_FlushFile()
+{
+	if (perfFile)
+		fflush(perfFile);
+}
+
 void NXPerf_EndFrame()
 {
 	double now = NXPerf_NowMS();
@@ -189,9 +195,15 @@ void NXPerf_EndFrame()
 		{
 			if (!perfFile)
 			{
+#ifdef __SWITCH__
+				perfFile = fopen("logs/perf.log", "w");
+#else
 				perfFile = fopen("perf.log", "w");
+#endif
 				if (perfFile)
 				{
+					// written to the card by the background writer (NXPerf_FlushFile)
+					setvbuf(perfFile, nullptr, _IOFBF, 64 * 1024);
 					WriteSettings(perfFile);
 					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab\n");
 				}
@@ -245,7 +257,9 @@ void NXPerf_EndFrame()
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);
 			win = {};
+#ifndef __SWITCH__
 			fflush(perfFile);
+#endif
 			frames = 0;
 			sumFrame = maxFrame = 0;
 			linesWritten++;

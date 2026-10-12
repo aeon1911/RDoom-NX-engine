@@ -94,6 +94,7 @@ public:
 	unsigned int mIndex;
 	std::atomic<unsigned int> mCurIndex;
 	unsigned int mNumReserved;
+	unsigned int mSlotEnd = BUFFER_SIZE_TO_USE;	// end of this frame's dynamic region (see DFrameBuffer::PerFrameSlot)
 
 	unsigned int mMapStart;
 
@@ -136,10 +137,7 @@ public:
 
 	std::pair<FFlatVertex *, unsigned int> AllocVertices(unsigned int count);
 
-	void Reset()
-	{
-		mCurIndex = mIndex;
-	}
+	void Reset();
 
 	void NextPipelineBuffer()
 	{

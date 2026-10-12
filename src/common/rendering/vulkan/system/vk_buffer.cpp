@@ -21,6 +21,7 @@
 */
 
 #include "vk_buffer.h"
+#include "v_video.h"
 #include "vk_hwbuffer.h"
 #include "vulkan/renderer/vk_streambuffer.h"
 #include "hwrenderer/data/shaderuniforms.h"
@@ -38,8 +39,9 @@ VkBufferManager::~VkBufferManager()
 
 void VkBufferManager::Init()
 {
-	MatrixBuffer.reset(new VkStreamBuffer(this, sizeof(MatricesUBO), 50000));
-	StreamBuffer.reset(new VkStreamBuffer(this, sizeof(StreamUBO), 300));
+	// one region per frame in flight (DFrameBuffer::PerFrameSlots)
+	MatrixBuffer.reset(new VkStreamBuffer(this, sizeof(MatricesUBO), 50000 * screen->PerFrameSlots()));
+	StreamBuffer.reset(new VkStreamBuffer(this, sizeof(StreamUBO), 300 * screen->PerFrameSlots()));
 
 	CreateFanToTrisIndexBuffer();
 }
@@ -129,6 +131,14 @@ VkStreamBuffer::VkStreamBuffer(VkBufferManager* buffers, size_t structSize, size
 
 	UniformBuffer = (VkHardwareDataBuffer*)buffers->CreateDataBuffer(-1, false, false);
 	UniformBuffer->SetData(mBlockSize * count, nullptr, BufferUsageType::Persistent);
+	mRegionSize = mBlockSize * (uint32_t)(count / screen->PerFrameSlots());
+	Reset();
+}
+
+void VkStreamBuffer::Reset()
+{
+	mStreamDataOffset = mRegionSize * screen->PerFrameSlot();
+	mRegionEnd = mStreamDataOffset + mRegionSize;
 }
 
 VkStreamBuffer::~VkStreamBuffer()
@@ -139,9 +149,9 @@ VkStreamBuffer::~VkStreamBuffer()
 uint32_t VkStreamBuffer::NextStreamDataBlock()
 {
 	mStreamDataOffset += mBlockSize;
-	if (mStreamDataOffset + (size_t)mBlockSize >= UniformBuffer->Size())
+	if (mStreamDataOffset + (size_t)mBlockSize >= mRegionEnd)
 	{
-		mStreamDataOffset = 0;
+		Reset();
 		return 0xffffffff;
 	}
 	return mStreamDataOffset;

@@ -57,7 +57,7 @@ VkCommandBufferManager::VkCommandBufferManager(VulkanRenderDevice* fb) : fb(fb)
 	for (auto& fence : mSubmitFence)
 		fence.reset(new VulkanFence(fb->device.get()));
 
-	for (int i = 0; i < maxConcurrentSubmitCount; i++)
+	for (int i = 0; i < Banks * maxConcurrentSubmitCount; i++)
 		mSubmitWaitFences[i] = mSubmitFence[i]->fence;
 
 #ifndef __SWITCH__
@@ -164,15 +164,20 @@ void VkCommandBufferManager::ReadGpuMarks()
 	{
 		if (!mGpuMarkSubmitted[set])
 			continue;
-		mGpuMarkSubmitted[set] = false;
 		uint64_t r[GpuMarkCount * 2] = {};	// value, availability
 		VkResult res = vkGetQueryPoolResults(fb->device->device, mGpuMarkPool->pool, set * GpuMarkCount, GpuMarkCount, sizeof(r), r,
 			2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
 		if (res != VK_SUCCESS && res != VK_NOT_READY)
+		{
+			mGpuMarkSubmitted[set] = false;
 			continue;
+		}
 		auto avail = [&](int m) { return (mGpuMarksWritten[set] & (1u << m)) && r[m * 2 + 1] != 0; };
 		auto ms = [&](int a, int b) { return r[b * 2] > r[a * 2] ? (double)(r[b * 2] - r[a * 2]) * period / 1e6 : 0.0; };
-		if (!avail(GpuFrameStart) || !avail(GpuFrameEnd))
+		if (!avail(GpuFrameEnd))
+			continue;	// that frame is still on the GPU (two frames in flight): read it later
+		mGpuMarkSubmitted[set] = false;
+		if (!avail(GpuFrameStart))
 			continue;
 		nxperf.gpuframes++;
 		nxperf.gpu_frame_ms += ms(GpuFrameStart, GpuFrameEnd);
@@ -192,25 +197,44 @@ void VkCommandBufferManager::ReadGpuMarks()
 #endif
 }
 
-void VkCommandBufferManager::WaitForPendingFrame()
+void VkCommandBufferManager::WaitForBank(int bank)
 {
-	if (!mFramePending)
+	PendingFrame &p = mPending[bank];
+	if (!p.pending)
 		return;
 	NXPERF_SCOPE(vkpending_ms, nullptr);
-	vkWaitForFences(fb->device->device, mPendingFences, mSubmitWaitFences, VK_TRUE, std::numeric_limits<uint64_t>::max());
-	vkResetFences(fb->device->device, mPendingFences, mSubmitWaitFences);
-	mPendingTransferDelete.reset();
-	mPendingDrawDelete.reset();
-	mFramePending = false;
-	mPendingFences = 0;
+	VkFence *fences = mSubmitWaitFences + bank * maxConcurrentSubmitCount;
+	vkWaitForFences(fb->device->device, p.fences, fences, VK_TRUE, std::numeric_limits<uint64_t>::max());
+	vkResetFences(fb->device->device, p.fences, fences);
+	p.transferDelete.reset();
+	p.drawDelete.reset();
+	p.pending = false;
+	p.fences = 0;
+}
+
+void VkCommandBufferManager::WaitForPendingFrame()
+{
+	// the older frame first (it uses the current bank)
+	WaitForBank(mBank);
+	WaitForBank(mBank ^ 1);
+	mSyncNext = false;
+}
+
+void VkCommandBufferManager::WaitForFrameSlot()
+{
+	if (mSyncNext || !rd_vk_frameoverlap)
+		WaitForPendingFrame();
+	else
+		WaitForBank(mBank);
 }
 
 void VkCommandBufferManager::FlushCommands(VulkanCommandBuffer** commands, size_t count, bool finish, bool lastsubmit)
 {
-	// the fences and command buffers of the previous frame are reused from index 0
-	WaitForPendingFrame();
+	// this bank's fences and semaphores are reused from index 0
+	WaitForBank(mBank);
 
-	int currentIndex = mNextSubmit % maxConcurrentSubmitCount;
+	const int bankBase = mBank * maxConcurrentSubmitCount;
+	int currentIndex = bankBase + mNextSubmit % maxConcurrentSubmitCount;
 
 	if (mNextSubmit >= maxConcurrentSubmitCount)
 	{
@@ -225,7 +249,7 @@ void VkCommandBufferManager::FlushCommands(VulkanCommandBuffer** commands, size_
 		submit.AddCommandBuffer(commands[i]);
 
 	if (mNextSubmit > 0)
-		submit.AddWait(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, mSubmitSemaphore[(mNextSubmit - 1) % maxConcurrentSubmitCount].get());
+		submit.AddWait(VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, mSubmitSemaphore[bankBase + (mNextSubmit - 1) % maxConcurrentSubmitCount].get());
 
 	auto framebuffers = fb->GetFramebufferManager();
 	if (finish && framebuffers->PresentImageIndex != -1)
@@ -301,7 +325,15 @@ void VkCommandBufferManager::FlushCommands(bool finish, bool lastsubmit, bool up
 
 void VkCommandBufferManager::WaitForCommands(bool finish, bool uploadOnly)
 {
-	WaitForPendingFrame();
+#if defined(__SWITCH__)
+	const bool overlap = finish && !uploadOnly && rd_vk_frameoverlap && !gpuStatActive;
+#else
+	const bool overlap = false;
+#endif
+	// the end of a frame in overlap mode leaves the other frame in flight;
+	// everything else (uploads, resizes, full buffers) needs an idle GPU
+	if (!overlap)
+		WaitForPendingFrame();
 
 	if (finish)
 	{
@@ -326,14 +358,16 @@ void VkCommandBufferManager::WaitForCommands(bool finish, bool uploadOnly)
 	// End of a presented frame: leave the GPU work in flight. Everything the
 	// frame used (command buffers, staging memory, deleted objects) stays
 	// alive until WaitForPendingFrame. GPU timestamp queries need the wait.
-	if (finish && !uploadOnly && rd_vk_frameoverlap && !gpuStatActive && numWaitFences > 0)
+	if (overlap && numWaitFences > 0)
 	{
-		mFramePending = true;
-		mPendingFences = numWaitFences;
-		mPendingTransferDelete = std::move(TransferDeleteList);
-		mPendingDrawDelete = std::move(DrawDeleteList);
+		PendingFrame &p = mPending[mBank];
+		p.pending = true;
+		p.fences = numWaitFences;
+		p.transferDelete = std::move(TransferDeleteList);
+		p.drawDelete = std::move(DrawDeleteList);
 		DeleteFrameObjects(false);
 		mNextSubmit = 0;
+		mBank ^= 1;	// the next frame records into the other bank and buffer region
 		Finish.Unclock();
 		rendered_commandbuffers = current_rendered_commandbuffers;
 		current_rendered_commandbuffers = 0;
@@ -344,8 +378,9 @@ void VkCommandBufferManager::WaitForCommands(bool finish, bool uploadOnly)
 	if (numWaitFences > 0)
 	{
 		NXPERF_SCOPE(gpuwait_ms, nullptr);
-		vkWaitForFences(fb->device->device, numWaitFences, mSubmitWaitFences, VK_TRUE, std::numeric_limits<uint64_t>::max());
-		vkResetFences(fb->device->device, numWaitFences, mSubmitWaitFences);
+		VkFence *fences = mSubmitWaitFences + mBank * maxConcurrentSubmitCount;
+		vkWaitForFences(fb->device->device, numWaitFences, fences, VK_TRUE, std::numeric_limits<uint64_t>::max());
+		vkResetFences(fb->device->device, numWaitFences, fences);
 	}
 
 	DeleteFrameObjects(uploadOnly);

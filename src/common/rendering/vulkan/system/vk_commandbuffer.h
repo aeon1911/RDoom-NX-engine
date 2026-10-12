@@ -49,6 +49,13 @@ public:
 	// frame (or before any other submit), so the GPU draws frame N while the
 	// CPU runs the game tics and input of frame N+1.
 	void WaitForPendingFrame();
+	// Two frames in flight (Switch): frame N records while the GPU draws N-1.
+	// Each frame uses one bank of fences/semaphores and one region of the
+	// per-frame buffers (DFrameBuffer::PerFrameSlot); BeginFrame only waits
+	// for the frame that used the same bank (N-2).
+	void WaitForFrameSlot();
+	int FrameSlot() const { return mBank; }
+	void SyncNextFrame() { mSyncNext = true; }
 
 	void PushGroup(const FString& name);
 	void PopGroup();
@@ -103,16 +110,21 @@ private:
 	std::unique_ptr<VulkanCommandBuffer> mTransferCommands;
 	std::unique_ptr<VulkanCommandBuffer> mDrawCommands;
 
-	enum { maxConcurrentSubmitCount = 8 };
-	std::unique_ptr<VulkanSemaphore> mSubmitSemaphore[maxConcurrentSubmitCount];
-	std::unique_ptr<VulkanFence> mSubmitFence[maxConcurrentSubmitCount];
-	VkFence mSubmitWaitFences[maxConcurrentSubmitCount];
-	int mNextSubmit = 0;
+	enum { maxConcurrentSubmitCount = 8, Banks = 2 };
+	std::unique_ptr<VulkanSemaphore> mSubmitSemaphore[Banks * maxConcurrentSubmitCount];
+	std::unique_ptr<VulkanFence> mSubmitFence[Banks * maxConcurrentSubmitCount];
+	VkFence mSubmitWaitFences[Banks * maxConcurrentSubmitCount];
+	int mNextSubmit = 0;	// submits of the current frame (in bank mBank)
+	int mBank = 0;
+	bool mSyncNext = false;
 
-	bool mFramePending = false;
-	int mPendingFences = 0;
-	std::unique_ptr<DeleteList> mPendingTransferDelete;
-	std::unique_ptr<DeleteList> mPendingDrawDelete;
+	struct PendingFrame
+	{
+		bool pending = false;
+		int fences = 0;
+		std::unique_ptr<DeleteList> transferDelete, drawDelete;
+	} mPending[Banks];
+	void WaitForBank(int bank);
 
 	struct TimestampQuery
 	{

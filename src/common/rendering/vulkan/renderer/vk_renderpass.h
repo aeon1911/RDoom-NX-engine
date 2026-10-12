@@ -22,6 +22,8 @@
 
 #pragma once
 
+#include "i_time.h"
+
 #include "zvulkan/vulkanobjects.h"
 #include "renderstyle.h"
 #include "hwrenderer/data/buffers.h"
@@ -159,7 +161,17 @@ public:
 
 	VulkanPipelineCache* GetCache() { return PipelineCache.get(); }
 
+	// Switch: the cache used to be written only by a clean exit, and closing
+	// with HOME skipped it, so every session compiled its pipelines again
+	// (40-90 ms each on the console). It is now handed to the background writer
+	// a few seconds after the last new pipeline.
+	void PipelineCreated() { mUnsavedPipelines++; mLastPipelineMs = I_msTime(); }
+	void SaveCacheWhenIdle();
+
 private:
+	int mUnsavedPipelines = 0;
+	uint64_t mLastPipelineMs = 0;
+
 	VulkanRenderDevice* fb = nullptr;
 
 	std::map<VkRenderPassKey, std::unique_ptr<VkRenderPassSetup>> RenderPassSetup;

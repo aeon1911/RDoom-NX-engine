@@ -89,6 +89,7 @@ bool I_OnScreenKeyboard(const char *hint, char *out, int outlen)
 // so the user doesn't just get dumped back to the Homebrew Menu without a clue.
 void I_NXShowFatalError(const char *title, const char *message)
 {
+	RDoom_FlushLogsNow();
 	// the loading screen owns the framebuffer until video is up
 	NXLS_Stop();
 	NXLS_SetBoost(false);

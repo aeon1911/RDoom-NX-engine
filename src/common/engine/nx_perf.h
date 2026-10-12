@@ -51,6 +51,7 @@ struct NXPerfCounters
 extern NXPerfCounters nxperf;
 double NXPerf_NowMS();
 void NXPerf_EndFrame();
+void NXPerf_FlushFile();	// background writer (Switch)
 // last completed frame, the simulation time inside it, and the average cost of one tic (0 if none ran)
 double NXPerf_LastFrameMS();
 double NXPerf_LastSimMS();

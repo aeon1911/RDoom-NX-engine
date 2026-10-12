@@ -49,6 +49,7 @@ BoneBuffer::BoneBuffer(int pipelineNbr) : mPipelineNbr(pipelineNbr)
 		mBufferPipeline[n]->SetData(mByteSize, nullptr, BufferUsageType::Persistent);
 	}
 
+	mSlotSize = mBufferType ? mBufferSize / screen->PerFrameSlots() : mBufferSize;
 	Clear();
 }
 
@@ -59,7 +60,9 @@ BoneBuffer::~BoneBuffer()
 
 void BoneBuffer::Clear()
 {
-	mIndex = 0;
+	const unsigned base = mBufferType ? screen->PerFrameSlot() * mSlotSize : 0;
+	mIndex = base;
+	mLimit = base + mSlotSize;
 
 	mPipelinePos++;
 	mPipelinePos %= mPipelineNbr;
@@ -82,7 +85,7 @@ int BoneBuffer::UploadBones(const TArray<VSMatrix>& bones)
 
 	unsigned int thisindex = mIndex.fetch_add(totalsize);
 
-	if (thisindex + totalsize <= mBufferSize)
+	if (thisindex + totalsize <= mLimit)
 	{
 		memcpy(mBufferPointer + thisindex * BONE_SIZE, bones.Data(), totalsize * BONE_SIZE);
 		return thisindex;

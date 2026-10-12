@@ -39,6 +39,7 @@ class BoneBuffer
 	unsigned int mBufferSize;
 	unsigned int mByteSize;
 	unsigned int mMaxUploadSize;
+	unsigned int mSlotSize = 0, mLimit = 0;	// per-frame region (see DFrameBuffer::PerFrameSlot)
 
 public:
 	BoneBuffer(int pipelineNbr = 1);

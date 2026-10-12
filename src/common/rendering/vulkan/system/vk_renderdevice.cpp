@@ -210,8 +210,11 @@ void VulkanRenderDevice::InitializeState()
 
 void VulkanRenderDevice::Update()
 {
-	// wipes and the start screen present frames without BeginFrame
-	mCommands->WaitForPendingFrame();
+	// wipes and the start screen present frames without BeginFrame: they
+	// write the per-frame buffers without a region of their own
+	if (!mFrameBegun)
+		mCommands->WaitForPendingFrame();
+	mFrameBegun = false;
 	twoD.Reset();
 	Flush3D.Reset();
 
@@ -480,8 +483,11 @@ TArray<uint8_t> VulkanRenderDevice::GetScreenshotBuffer(int &pitch, ESSType &col
 
 void VulkanRenderDevice::BeginFrame()
 {
-	// the frame's persistent buffers are rewritten from the start below
-	mCommands->WaitForPendingFrame();
+	// the frame's region of the per-frame buffers is rewritten from the start
+	// below; only the frame that used the same region (two frames ago) must be done
+	mCommands->WaitForFrameSlot();
+	mFrameBegun = true;
+	mRenderPassManager->SaveCacheWhenIdle();
 	SetViewportRects(nullptr);
 	mViewpoints->Clear();
 	mCommands->BeginFrame();
@@ -509,6 +515,26 @@ void VulkanRenderDevice::Draw2D()
 void VulkanRenderDevice::WaitForCommands(bool finish)
 {
 	mCommands->WaitForCommands(finish);
+}
+
+int VulkanRenderDevice::PerFrameSlots() const
+{
+#ifdef __SWITCH__
+	return 2;
+#else
+	return 1;
+#endif
+}
+
+int VulkanRenderDevice::PerFrameSlot() const
+{
+	return mCommands ? mCommands->FrameSlot() : 0;
+}
+
+void VulkanRenderDevice::SyncNextFrame()
+{
+	if (mCommands)
+		mCommands->SyncNextFrame();
 }
 
 void VulkanRenderDevice::WaitForPendingFrame()
