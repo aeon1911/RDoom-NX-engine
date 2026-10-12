@@ -185,6 +185,23 @@ static void RotateLogs()
 	static const char *const files[] = {
 		"logs/rdoom.log", "logs/engine.log", "logs/engine-stderr.log", "logs/engine-session.txt",
 		"logs/error.log", "logs/boot.log", "logs/last-launch.txt", "perf.log", "phase.log" };
+	// (gpu-lost.txt stays in place: the start-up below reads it)
+	// keep five sessions: anterior (newest) .. anterior-5 (oldest)
+	{
+		char from[96], to[96];
+		snprintf(to, sizeof(to), RDOOM_SD_ROOT "/logs/anterior-5");
+		RemoveTree(to);
+		for (int i = 4; i >= 1; i--)
+		{
+			if (i == 1)
+				snprintf(from, sizeof(from), RDOOM_SD_ROOT "/logs/anterior");
+			else
+				snprintf(from, sizeof(from), RDOOM_SD_ROOT "/logs/anterior-%d", i);
+			snprintf(to, sizeof(to), RDOOM_SD_ROOT "/logs/anterior-%d", i + 1);
+			if (DirExists(from))
+				rename(from, to);
+		}
+	}
 	MakeDirs(RDOOM_SD_ROOT "/logs/anterior");
 	for (const char *f : files)
 	{
