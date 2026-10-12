@@ -275,9 +275,22 @@ void VulkanRenderDevice::RenderTextureView(FCanvasTexture* tex, std::function<vo
 	tex->SetUpdated(true);
 }
 
+#ifdef __SWITCH__
+CVAR(Bool, rd_vk_earlysubmit, true, 0)
+#endif
+
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
 {
 	mCommands->MarkGpu(VkCommandBufferManager::GpuSceneEnd);
+#ifdef __SWITCH__
+	// Hand the finished 3D scene to the GPU now. Only the end-of-frame submit
+	// waits for a free swapchain image; with the whole frame in that submit the
+	// scene itself waited for the display (vsync) and the GPU sat idle while
+	// the CPU recorded the frame (console perf.log: GPU 9-13 ms per frame, yet
+	// 24-31 ms frames).
+	if (rd_vk_earlysubmit)
+		mCommands->FlushCommands(false);
+#endif
 	if (!swscene) mPostprocess->BlitSceneToPostprocess(); // Copy the resulting scene to the current post process texture
 	mPostprocess->PostProcessScene(fixedcm, flash, afterBloomDrawEndScene2D);
 }

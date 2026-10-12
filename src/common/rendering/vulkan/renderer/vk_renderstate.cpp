@@ -39,7 +39,13 @@
 #include "hwrenderer/data/hw_viewpointbuffer.h"
 #include "hwrenderer/data/shaderuniforms.h"
 
+#ifdef __SWITCH__
+// The GPU starts on the first draws of a frame while the CPU still records the
+// rest (the frame's buffers only grow during a frame, so earlier submits stay valid).
+CVAR(Int, vk_submit_size, 300, 0);
+#else
 CVAR(Int, vk_submit_size, 1000, 0);
+#endif
 EXTERN_CVAR(Bool, r_skipmats)
 
 VkRenderState::VkRenderState(VulkanRenderDevice* fb) : fb(fb), mStreamBufferWriter(fb), mMatrixBufferWriter(fb)
