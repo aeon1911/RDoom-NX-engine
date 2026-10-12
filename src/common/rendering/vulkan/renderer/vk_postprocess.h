@@ -56,6 +56,8 @@ public:
 	void ImageTransitionScene(bool undefinedSrcLayout);
 
 	void BlitSceneToPostprocess();
+	// dynamic resolution: stretches the 3D view drawn into 'from' over 'to'
+	void UpscaleScene(const IntRect &from, const IntRect &to);
 	void BlitCurrentToImage(VkTextureImage *image, VkImageLayout finallayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	void CopyCurrentToImage(VkTextureImage *image, VkImageLayout finallayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 	void DrawPresentTexture(const IntRect &box, bool applyGamma, bool screenshot);

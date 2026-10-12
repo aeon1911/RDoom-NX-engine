@@ -116,6 +116,7 @@ public:
 	int PerFrameSlots() const override;
 	int PerFrameSlot() const override;
 	void SyncNextFrame() override;
+	void ScaleSceneViewport() override;
 #ifdef __SWITCH__
 	bool AllowSSAO() override;
 #endif
@@ -130,6 +131,12 @@ private:
 	std::unique_ptr<VkCommandBufferManager> mCommands;
 
 	bool mFrameBegun = false;	// BeginFrame ran for the frame being recorded
+	// dynamic resolution of the 3D view (rd_dynres)
+	float mDynScale = 1.0f;
+	int mDynCalmFrames = 0;
+	bool mSceneScaled = false;
+	IntRect mSceneFull, mSceneSmall;
+	void UpdateDynamicResolution();
 	std::unique_ptr<VkBufferManager> mBufferManager;
 	std::unique_ptr<VkSamplerManager> mSamplerManager;
 	std::unique_ptr<VkTextureManager> mTextureManager;

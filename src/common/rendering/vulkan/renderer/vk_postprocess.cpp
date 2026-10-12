@@ -183,6 +183,33 @@ void VkPostprocess::BlitSceneToPostprocess()
 	}
 }
 
+void VkPostprocess::UpscaleScene(const IntRect &from, const IntRect &to)
+{
+	fb->GetRenderState()->EndRenderPass();
+	auto buffers = fb->GetBuffers();
+	auto cmdbuffer = fb->GetCommands()->GetDrawCommands();
+	const int src = mCurrentPipelineImage, dst = (mCurrentPipelineImage + 1) % VkRenderBuffers::NumPipelineImages;
+
+	// dst keeps its content outside the view (the HUD redraws the status bar area)
+	VkImageTransition()
+		.AddImage(&buffers->PipelineImage[src], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, false)
+		.AddImage(&buffers->PipelineImage[dst], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, false)
+		.Execute(cmdbuffer);
+
+	VkImageBlit blit = {};
+	blit.srcOffsets[0] = { from.left, from.top, 0 };
+	blit.srcOffsets[1] = { from.left + from.width, from.top + from.height, 1 };
+	blit.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+	blit.dstOffsets[0] = { to.left, to.top, 0 };
+	blit.dstOffsets[1] = { to.left + to.width, to.top + to.height, 1 };
+	blit.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+	cmdbuffer->blitImage(
+		buffers->PipelineImage[src].Image->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		buffers->PipelineImage[dst].Image->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		1, &blit, VK_FILTER_LINEAR);
+	mCurrentPipelineImage = dst;
+}
+
 void VkPostprocess::ImageTransitionScene(bool undefinedSrcLayout)
 {
 	auto buffers = fb->GetBuffers();

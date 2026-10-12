@@ -21,6 +21,7 @@
 */
 
 #include <cinttypes>
+#include "gamestate.h"
 
 #include <zvulkan/vulkanbuilders.h>
 #include <zvulkan/vulkancompatibledevice.h>
@@ -280,6 +281,73 @@ void VulkanRenderDevice::RenderTextureView(FCanvasTexture* tex, std::function<vo
 
 #ifdef __SWITCH__
 CVAR(Bool, rd_vk_earlysubmit, true, 0)
+// Dynamic resolution of the 3D view: the scene is drawn into a smaller part of
+// the render target when the GPU needs more than rd_dynres_target ms per frame
+// (Brutal Doom explosions: dozens of large translucent smoke sprites), then
+// stretched back before the weapon and HUD, which stay at full resolution.
+CVAR(Bool, rd_dynres, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, rd_dynres_target, 12.0f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, rd_dynres_min, 0.6f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, rd_dynres_force, 0.0f, 0)	// tests: fixed 3D scale (0 = automatic)
+EXTERN_CVAR(Int, rd_gpubench)
+
+void VulkanRenderDevice::UpdateDynamicResolution()
+{
+	if (rd_dynres_force > 0)
+	{
+		mDynScale = clamp((float)rd_dynres_force, 0.25f, 1.0f);
+		return;
+	}
+	double frameMs, sceneMs;
+	if (!mCommands->TakeGpuFrameTime(frameMs, sceneMs))
+		return;
+	const float minScale = clamp((float)rd_dynres_min, 0.4f, 1.0f);
+	if (!rd_dynres || rd_gpubench > 0 || gamestate != GS_LEVEL || frameMs <= 0)
+	{
+		mDynScale = 1.0f;
+		mDynCalmFrames = 0;
+		return;
+	}
+	const double target = clamp((double)rd_dynres_target, 6.0, 30.0);
+	if (frameMs > target && sceneMs > 0.5)
+	{
+		// the 3D view's cost follows its area; the rest of the frame stays
+		const double fixedMs = frameMs - sceneMs;
+		const double wantScene = max(target - fixedMs, sceneMs * 0.25);
+		float s = mDynScale * (float)sqrt(wantScene / sceneMs);
+		s = max(s, mDynScale * 0.8f);	// at most 20% per step
+		mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
+		mDynCalmFrames = 0;
+	}
+	else if (frameMs < target * 0.8 && mDynScale < 1.0f)
+	{
+		// back up slowly, only after the GPU has had room for a while
+		if (++mDynCalmFrames >= 30)
+		{
+			mDynScale = min(1.0f, mDynScale + 0.05f);
+			mDynCalmFrames = 0;
+		}
+	}
+	else
+		mDynCalmFrames = 0;
+}
+
+void VulkanRenderDevice::ScaleSceneViewport()
+{
+	mSceneScaled = false;
+	nxperf.scene_scale = mDynScale;
+	if (mDynScale >= 0.999f || mSceneViewport.width < 64 || mSceneViewport.height < 64)
+		return;
+	mSceneFull = mSceneViewport;
+	mSceneSmall = mSceneViewport;
+	mSceneSmall.width = max(32, (int)(mSceneFull.width * mDynScale));
+	mSceneSmall.height = max(32, (int)(mSceneFull.height * mDynScale));
+	mSceneViewport = mSceneSmall;
+	mSceneScaled = true;
+}
+#else
+void VulkanRenderDevice::UpdateDynamicResolution() {}
+void VulkanRenderDevice::ScaleSceneViewport() {}
 #endif
 
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
@@ -295,6 +363,14 @@ void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash
 		mCommands->FlushCommands(false);
 #endif
 	if (!swscene) mPostprocess->BlitSceneToPostprocess(); // Copy the resulting scene to the current post process texture
+#ifdef __SWITCH__
+	if (mSceneScaled)
+	{
+		mSceneScaled = false;
+		mPostprocess->UpscaleScene(mSceneSmall, mSceneFull);
+		mSceneViewport = mSceneFull;
+	}
+#endif
 	mPostprocess->PostProcessScene(fixedcm, flash, afterBloomDrawEndScene2D);
 }
 
@@ -488,6 +564,9 @@ void VulkanRenderDevice::BeginFrame()
 	mCommands->WaitForFrameSlot();
 	mFrameBegun = true;
 	mRenderPassManager->SaveCacheWhenIdle();
+#ifdef __SWITCH__
+	UpdateDynamicResolution();
+#endif
 	SetViewportRects(nullptr);
 	mViewpoints->Clear();
 	mCommands->BeginFrame();

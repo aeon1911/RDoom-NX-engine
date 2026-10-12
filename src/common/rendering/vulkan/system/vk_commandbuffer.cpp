@@ -181,6 +181,9 @@ void VkCommandBufferManager::ReadGpuMarks()
 			continue;
 		nxperf.gpuframes++;
 		nxperf.gpu_frame_ms += ms(GpuFrameStart, GpuFrameEnd);
+		mGpuLastFrame = ms(GpuFrameStart, GpuFrameEnd);
+		mGpuLastScene = avail(GpuSceneEnd) ? ms(GpuFrameStart, GpuSceneEnd) : 0.0;
+		mGpuNewSample = true;
 		int last = GpuFrameStart;
 		if (avail(GpuSceneEnd))
 		{

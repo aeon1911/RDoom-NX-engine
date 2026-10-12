@@ -281,6 +281,9 @@ public:
 	virtual int PerFrameSlots() const { return 1; }
 	virtual int PerFrameSlot() const { return 0; }
 	virtual void SyncNextFrame() {}
+	// Dynamic resolution of the 3D view (Switch Vulkan): shrinks mSceneViewport
+	// for the main view; the backend scales it back up before the HUD.
+	virtual void ScaleSceneViewport() {}
 	virtual void SetSaveBuffers(bool yes) {}
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }

@@ -67,6 +67,8 @@ public:
 	// frame's fence has passed, so measuring adds no CPU/GPU synchronisation.
 	enum GpuMark { GpuFrameStart, GpuSceneEnd, GpuPostEnd, GpuFrameEnd, GpuMarkCount };
 	void MarkGpu(GpuMark mark);
+	// newest completed frame (0 until one was read); taken by the dynamic resolution
+	bool TakeGpuFrameTime(double &frameMs, double &sceneMs) { if (!mGpuNewSample) return false; mGpuNewSample = false; frameMs = mGpuLastFrame; sceneMs = mGpuLastScene; return true; }
 
 	class DeleteList
 	{
@@ -139,6 +141,8 @@ private:
 	unsigned mGpuMarksWritten[GpuMarkSets] = {};
 	bool mGpuMarkSubmitted[GpuMarkSets] = {};
 	void ReadGpuMarks();
+	double mGpuLastFrame = 0, mGpuLastScene = 0;
+	bool mGpuNewSample = false;
 
 	enum { MaxTimestampQueries = 100 };
 	std::unique_ptr<VulkanQueryPool> mTimestampQueryPool;

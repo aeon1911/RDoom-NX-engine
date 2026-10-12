@@ -134,6 +134,8 @@ sector_t* RenderViewpoint(FRenderViewpoint& mainvp, AActor* camera, IntRect* bou
 	{
 		const auto& eye = vrmode->mEyes[eye_ix];
 		screen->SetViewportRects(bounds);
+		if (mainview && toscreen && eyeCount == 1)
+			screen->ScaleSceneViewport();
 
 		if (mainview) // Bind the scene frame buffer and turn on draw buffers used by ssao
 		{
