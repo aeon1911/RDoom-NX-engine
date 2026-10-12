@@ -97,6 +97,7 @@ public:
 	VkShaderProgram *GetEffect(int effect, EPassType passType);
 	VkShaderProgram *Get(unsigned int eff, bool alphateston, EPassType passType);
 	bool CompileNextShader();
+	bool AllCompiled() const { return compileIndex == -1; }
 
 	VkPPShader* GetVkShader(PPShader* shader);
 

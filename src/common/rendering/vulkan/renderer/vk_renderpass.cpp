@@ -39,6 +39,7 @@
 #include "v_2ddrawer.h"
 #include "i_specialpaths.h"
 #include "cmdlib.h"
+#include "filesystem.h"
 #include "nx_perf.h"
 #include "c_cvars.h"
 
@@ -94,6 +95,103 @@ VkRenderPassManager::~VkRenderPassManager()
 	}
 }
 
+void VkRenderPassManager::PipelineCreated(const VkRenderPassKey &passKey, const VkPipelineKey &key)
+{
+	mUnsavedPipelines++;
+	mLastPipelineMs = I_msTime();
+#ifdef __SWITCH__
+	LoadWarmList();
+	const VkVertexFormat *vf = GetVertexFormat(key.VertexFormat);
+	if (!vf || vf->Attrs.size() > 12)
+		return;
+	WarmEntry e;
+	memset(&e, 0, sizeof(e));
+	e.Pass = passKey;
+	e.Key = key;
+	e.Key.VertexFormat = 0;
+	e.NumBindingPoints = vf->NumBindingPoints;
+	e.Stride = (int)vf->Stride;
+	e.UseVertexData = vf->UseVertexData;
+	e.NumAttrs = (int)vf->Attrs.size();
+	for (int i = 0; i < e.NumAttrs; i++)
+		e.Attrs[i] = vf->Attrs[i];
+	for (auto &w : mWarm)
+		if (!memcmp(&w, &e, sizeof(e)))
+			return;
+	if (mWarm.size() < 400)
+	{
+		mWarm.push_back(e);
+		mWarmDirty = true;
+	}
+#endif
+}
+
+FString VkRenderPassManager::WarmFilename()
+{
+	// one list per game: hash of the loaded resource files
+	uint32_t h = 2166136261u;
+	for (int i = 0; i < fileSystem.GetNumWads(); i++)
+	{
+		const char *name = fileSystem.GetResourceFileName(i);
+		for (const char *p = name ? name : ""; *p; p++)
+			h = (h ^ (uint8_t)*p) * 16777619u;
+	}
+	FString path = M_GetCachePath(true);
+	path.AppendFormat("/rdoom-pipelines-%08x.bin", h);
+	return path;
+}
+
+void VkRenderPassManager::LoadWarmList()
+{
+	if (mWarmLoaded)
+		return;
+	mWarmLoaded = true;
+	FileReader fr;
+	if (!fr.OpenFile(WarmFilename().GetChars()))
+		return;
+	uint32_t header[3] = {};	// magic, entry size, count
+	if (fr.Read(header, sizeof(header)) != (FileReader::Size)sizeof(header) || header[0] != 0x4c504452 || header[1] != sizeof(WarmEntry) || header[2] > 400)
+		return;
+	mWarm.resize(header[2]);
+	if (fr.Read(mWarm.data(), mWarm.size() * sizeof(WarmEntry)) != (FileReader::Size)(mWarm.size() * sizeof(WarmEntry)))
+		mWarm.clear();
+}
+
+void VkRenderPassManager::WarmupPipelines()
+{
+#ifdef __SWITCH__
+	if (mWarming || !fb->GetShaderManager() || !fb->GetShaderManager()->AllCompiled())
+		return;
+	LoadWarmList();
+	mWarming = true;
+	const uint64_t start = I_msTime();
+	int created = 0;
+	const auto list = mWarm;	// GetPipeline may append
+	for (const auto &w : list)
+	{
+		if (w.NumAttrs <= 0 || w.NumAttrs > 12)
+			continue;
+		VkPipelineKey key = w.Key;
+		if (key.SpecialEffect != EFF_NONE ? !fb->GetShaderManager()->GetEffect(key.SpecialEffect, w.Pass.DrawBuffers > 1 ? GBUFFER_PASS : NORMAL_PASS)
+			: !fb->GetShaderManager()->Get(key.EffectState, key.AlphaTest, w.Pass.DrawBuffers > 1 ? GBUFFER_PASS : NORMAL_PASS))
+			continue;	// a shader this game does not have
+		key.VertexFormat = GetVertexFormat(w.NumBindingPoints, w.NumAttrs, w.Stride, w.Attrs);
+		VkRenderPassSetup *pass = GetRenderPass(w.Pass);
+		if (pass->Pipelines.find(key) != pass->Pipelines.end())
+			continue;
+		pass->GetPipeline(key);
+		created++;
+	}
+	mWarming = false;
+	if (created)
+	{
+		FString n;
+		n.Format("%d of %d pipelines in %d ms", created, (int)list.size(), (int)(I_msTime() - start));
+		RDoom_SessionSet("vulkan_pipeline_warmup", n.GetChars());
+	}
+#endif
+}
+
 void VkRenderPassManager::SaveCacheWhenIdle()
 {
 #ifdef __SWITCH__
@@ -110,6 +208,15 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	}
 	catch (...)
 	{
+	}
+	if (mWarmDirty)
+	{
+		mWarmDirty = false;
+		std::vector<uint8_t> out(12 + mWarm.size() * sizeof(WarmEntry));
+		uint32_t header[3] = { 0x4c504452, (uint32_t)sizeof(WarmEntry), (uint32_t)mWarm.size() };
+		memcpy(out.data(), header, sizeof(header));
+		memcpy(out.data() + 12, mWarm.data(), mWarm.size() * sizeof(WarmEntry));
+		RDoom_WriteFileAsync(WarmFilename().GetChars(), out.data(), out.size());
 	}
 #endif
 }
@@ -273,7 +380,7 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key)
 	{
 		NXPERF_SCOPE(shader_ms, &nxperf.shaders);	// perf.log "shaders n/ms": pipelines created in that frame
 		item = CreatePipeline(key);
-		fb->GetRenderPassManager()->PipelineCreated();
+		fb->GetRenderPassManager()->PipelineCreated(PassKey, key);
 	}
 	return item.get();
 }

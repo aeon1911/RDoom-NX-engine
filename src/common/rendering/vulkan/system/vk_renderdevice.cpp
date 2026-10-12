@@ -540,6 +540,9 @@ void VulkanRenderDevice::SyncNextFrame()
 void VulkanRenderDevice::WaitForPendingFrame()
 {
 	mCommands->WaitForPendingFrame();
+	// called while a level loads: create the pipelines this game used before
+	if (mRenderPassManager)
+		mRenderPassManager->WarmupPipelines();
 }
 
 #ifdef __SWITCH__

@@ -165,12 +165,32 @@ public:
 	// with HOME skipped it, so every session compiled its pipelines again
 	// (40-90 ms each on the console). It is now handed to the background writer
 	// a few seconds after the last new pipeline.
-	void PipelineCreated() { mUnsavedPipelines++; mLastPipelineMs = I_msTime(); }
+	void PipelineCreated(const VkRenderPassKey &passKey, const VkPipelineKey &key);
 	void SaveCacheWhenIdle();
+
+	// Pipeline warm-up (Switch): even with the cache, creating a pipeline costs
+	// ~20 ms on the console (the driver uploads the shader to GPU memory and
+	// waits), which showed up as hitches the first time a door, shot or
+	// explosion appeared. Every pipeline a game (IWAD + mods) used is listed in
+	// cache/uzdoom/rdoom-pipelines-<hash>.bin and created again while a level
+	// loads, behind the loading screen.
+	void WarmupPipelines();
 
 private:
 	int mUnsavedPipelines = 0;
 	uint64_t mLastPipelineMs = 0;
+
+	struct WarmEntry
+	{
+		VkRenderPassKey Pass;
+		VkPipelineKey Key;	// VertexFormat zeroed: the format is stored below
+		int NumBindingPoints, Stride, UseVertexData, NumAttrs;
+		FVertexBufferAttribute Attrs[12];
+	};
+	std::vector<WarmEntry> mWarm;
+	bool mWarmLoaded = false, mWarmDirty = false, mWarming = false;
+	FString WarmFilename();
+	void LoadWarmList();
 
 	VulkanRenderDevice* fb = nullptr;
 
