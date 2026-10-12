@@ -219,6 +219,7 @@ void VulkanRenderDevice::Update()
 
 	GetPostprocess()->SetActiveRenderTarget();
 
+	mCommands->MarkGpu(VkCommandBufferManager::GpuPostEnd);
 	{
 		NXPERF_SCOPE(draw2d_ms, nullptr);
 		Draw2D();
@@ -269,13 +270,14 @@ void VulkanRenderDevice::RenderTextureView(FCanvasTexture* tex, std::function<vo
 		.AddImage(image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, false)
 		.Execute(mCommands->GetDrawCommands());
 
-	mRenderState->SetRenderTarget(&GetBuffers()->SceneColor, GetBuffers()->SceneDepthStencil.View.get(), GetBuffers()->GetWidth(), GetBuffers()->GetHeight(), VK_FORMAT_R16G16B16A16_SFLOAT, GetBuffers()->GetSceneSamples());
+	mRenderState->SetRenderTarget(&GetBuffers()->SceneColor, GetBuffers()->SceneDepthStencil.View.get(), GetBuffers()->GetWidth(), GetBuffers()->GetHeight(), GetBuffers()->SceneColorFormat, GetBuffers()->GetSceneSamples());
 
 	tex->SetUpdated(true);
 }
 
 void VulkanRenderDevice::PostProcessScene(bool swscene, int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
 {
+	mCommands->MarkGpu(VkCommandBufferManager::GpuSceneEnd);
 	if (!swscene) mPostprocess->BlitSceneToPostprocess(); // Copy the resulting scene to the current post process texture
 	mPostprocess->PostProcessScene(fixedcm, flash, afterBloomDrawEndScene2D);
 }
@@ -624,7 +626,7 @@ void VulkanRenderDevice::AmbientOccludeScene(float m5)
 
 void VulkanRenderDevice::SetSceneRenderTarget(bool useSSAO)
 {
-	mRenderState->SetRenderTarget(&GetBuffers()->SceneColor, GetBuffers()->SceneDepthStencil.View.get(), GetBuffers()->GetWidth(), GetBuffers()->GetHeight(), VK_FORMAT_R16G16B16A16_SFLOAT, GetBuffers()->GetSceneSamples());
+	mRenderState->SetRenderTarget(&GetBuffers()->SceneColor, GetBuffers()->SceneDepthStencil.View.get(), GetBuffers()->GetWidth(), GetBuffers()->GetHeight(), GetBuffers()->SceneColorFormat, GetBuffers()->GetSceneSamples());
 }
 
 bool VulkanRenderDevice::RaytracingEnabled()

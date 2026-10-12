@@ -36,6 +36,9 @@ struct NXPerfCounters
 	double vkacquire_ms = 0;	// vkAcquireNextImageKHR
 	double vkpresent_ms = 0;	// vkQueuePresentKHR
 	double vkpending_ms = 0;	// waiting at the start of a frame for the previous frame's GPU work (frame overlap)
+	// GPU time of completed frames (timestamps, read back a frame later)
+	int gpuframes = 0;
+	double gpu_frame_ms = 0, gpu_scene_ms = 0, gpu_post_ms = 0, gpu_end_ms = 0;	// whole frame = scene + post-processing + 2D/present
 	int tics = 0, shaders = 0, textures = 0, sounds = 0, sndstarts = 0;
 	int thinkers = 0;		// thinkers ticked (summed over the frame's tics)
 	int tex_async = 0, tex_wait = 0, tex_budget = 0, snd_async = 0, tex_preupload = 0;

@@ -950,6 +950,7 @@ set (PCH_SOURCES
 	g_statusbar/shared_sbar.cpp
 	rendering/2d/v_blend.cpp
 	rendering/hwrenderer/hw_entrypoint.cpp
+	rendering/rdoom_gpubench.cpp
 	rendering/hwrenderer/hw_vertexbuilder.cpp
 	rendering/hwrenderer/doom_aabbtree.cpp
 	rendering/hwrenderer/doom_levelmesh.cpp

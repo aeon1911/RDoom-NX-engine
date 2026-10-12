@@ -54,6 +54,13 @@ public:
 	void PopGroup();
 	void UpdateGpuStats();
 
+	// GPU timeline of each frame for perf.log (Switch): timestamps at the frame
+	// start, the end of the 3D scene, the end of post-processing and the frame
+	// end (after the present copy). They are read back without waiting once the
+	// frame's fence has passed, so measuring adds no CPU/GPU synchronisation.
+	enum GpuMark { GpuFrameStart, GpuSceneEnd, GpuPostEnd, GpuFrameEnd, GpuMarkCount };
+	void MarkGpu(GpuMark mark);
+
 	class DeleteList
 	{
 	public:
@@ -113,6 +120,13 @@ private:
 		uint32_t startIndex;
 		uint32_t endIndex;
 	};
+
+	enum { GpuMarkSets = 3 };
+	std::unique_ptr<VulkanQueryPool> mGpuMarkPool;
+	int mGpuMarkSet = 0;
+	unsigned mGpuMarksWritten[GpuMarkSets] = {};
+	bool mGpuMarkSubmitted[GpuMarkSets] = {};
+	void ReadGpuMarks();
 
 	enum { MaxTimestampQueries = 100 };
 	std::unique_ptr<VulkanQueryPool> mTimestampQueryPool;

@@ -106,6 +106,7 @@ VulkanCommandBuffer* VkCommandBufferManager::GetDrawCommands()
 
 void VkCommandBufferManager::BeginFrame()
 {
+	MarkGpu(GpuFrameStart);
 	if (mNextTimestampQuery > 0)
 	{
 		GetDrawCommands()->resetQueryPool(mTimestampQueryPool.get(), 0, mNextTimestampQuery);
@@ -115,7 +116,81 @@ void VkCommandBufferManager::BeginFrame()
 
 #if defined(__SWITCH__)
 CVAR(Bool, rd_vk_frameoverlap, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Bool, rd_vk_gputime, true, 0)
 #endif
+
+void VkCommandBufferManager::MarkGpu(GpuMark mark)
+{
+#if defined(__SWITCH__)
+	if (mark == GpuFrameStart)
+	{
+		// every earlier frame has finished here (BeginFrame waited for it)
+		ReadGpuMarks();
+		if (!rd_vk_gputime || !fb->device->GraphicsTimeQueries || gpuStatActive)
+			return;
+		if (!mGpuMarkPool)
+		{
+			mGpuMarkPool = QueryPoolBuilder()
+				.QueryType(VK_QUERY_TYPE_TIMESTAMP, GpuMarkSets * GpuMarkCount)
+				.Create(fb->device.get());
+		}
+		mGpuMarkSet = (mGpuMarkSet + 1) % GpuMarkSets;
+		mGpuMarksWritten[mGpuMarkSet] = 0;
+		mGpuMarkSubmitted[mGpuMarkSet] = false;
+		GetDrawCommands()->resetQueryPool(mGpuMarkPool.get(), mGpuMarkSet * GpuMarkCount, GpuMarkCount);
+	}
+	else if (!mGpuMarkPool || !(mGpuMarksWritten[mGpuMarkSet] & 1) || mGpuMarkSubmitted[mGpuMarkSet])
+	{
+		return;
+	}
+	unsigned bit = 1u << mark;
+	if (mGpuMarksWritten[mGpuMarkSet] & bit)
+		return;
+	mGpuMarksWritten[mGpuMarkSet] |= bit;
+	GetDrawCommands()->writeTimestamp(mark == GpuFrameStart ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+		mGpuMarkPool.get(), mGpuMarkSet * GpuMarkCount + mark);
+	if (mark == GpuFrameEnd)
+		mGpuMarkSubmitted[mGpuMarkSet] = true;
+#endif
+}
+
+void VkCommandBufferManager::ReadGpuMarks()
+{
+#if defined(__SWITCH__)
+	if (!mGpuMarkPool)
+		return;
+	const double period = fb->device->PhysicalDevice.Properties.Properties.limits.timestampPeriod; // ns per tick
+	for (int set = 0; set < GpuMarkSets; set++)
+	{
+		if (!mGpuMarkSubmitted[set])
+			continue;
+		mGpuMarkSubmitted[set] = false;
+		uint64_t r[GpuMarkCount * 2] = {};	// value, availability
+		VkResult res = vkGetQueryPoolResults(fb->device->device, mGpuMarkPool->pool, set * GpuMarkCount, GpuMarkCount, sizeof(r), r,
+			2 * sizeof(uint64_t), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+		if (res != VK_SUCCESS && res != VK_NOT_READY)
+			continue;
+		auto avail = [&](int m) { return (mGpuMarksWritten[set] & (1u << m)) && r[m * 2 + 1] != 0; };
+		auto ms = [&](int a, int b) { return r[b * 2] > r[a * 2] ? (double)(r[b * 2] - r[a * 2]) * period / 1e6 : 0.0; };
+		if (!avail(GpuFrameStart) || !avail(GpuFrameEnd))
+			continue;
+		nxperf.gpuframes++;
+		nxperf.gpu_frame_ms += ms(GpuFrameStart, GpuFrameEnd);
+		int last = GpuFrameStart;
+		if (avail(GpuSceneEnd))
+		{
+			nxperf.gpu_scene_ms += ms(last, GpuSceneEnd);
+			last = GpuSceneEnd;
+		}
+		if (avail(GpuPostEnd))
+		{
+			nxperf.gpu_post_ms += ms(last, GpuPostEnd);
+			last = GpuPostEnd;
+		}
+		nxperf.gpu_end_ms += ms(last, GpuFrameEnd);
+	}
+#endif
+}
 
 void VkCommandBufferManager::WaitForPendingFrame()
 {
@@ -211,6 +286,8 @@ void VkCommandBufferManager::FlushCommands(bool finish, bool lastsubmit, bool up
 
 		if (!uploadOnly && mDrawCommands)
 		{
+			if (finish)
+				MarkGpu(GpuFrameEnd);
 			mDrawCommands->end();
 			commands[count++] = mDrawCommands.get();
 			DrawDeleteList->Add(std::move(mDrawCommands));

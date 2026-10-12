@@ -21,6 +21,7 @@
 */
 
 #include "vk_postprocess.h"
+#include "c_cvars.h"
 #include "vulkan/shaders/vk_shader.h"
 #include <zvulkan/vulkanswapchain.h>
 #include <zvulkan/vulkanbuilders.h>
@@ -70,7 +71,7 @@ void VkPostprocess::SetActiveRenderTarget()
 		.AddImage(&buffers->PipelineDepthStencil, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, false)
 		.Execute(fb->GetCommands()->GetDrawCommands());
 
-	fb->GetRenderState()->SetRenderTarget(&buffers->PipelineImage[mCurrentPipelineImage], buffers->PipelineDepthStencil.View.get(), buffers->GetWidth(), buffers->GetHeight(), VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLE_COUNT_1_BIT);
+	fb->GetRenderState()->SetRenderTarget(&buffers->PipelineImage[mCurrentPipelineImage], buffers->PipelineDepthStencil.View.get(), buffers->GetWidth(), buffers->GetHeight(), buffers->SceneColorFormat, VK_SAMPLE_COUNT_1_BIT);
 }
 
 void VkPostprocess::PostProcessScene(int fixedcm, float flash, const std::function<void()> &afterBloomDrawEndScene2D)
@@ -107,6 +108,10 @@ void VkPostprocess::PostProcessScene(int fixedcm, float flash, const std::functi
 	hw_postprocess.Pass2(&renderstate, fixedcm, flash, sceneWidth, sceneHeight);
 }
 
+#ifdef __SWITCH__
+CVAR(Bool, rd_vk_sceneswap, true, 0)
+#endif
+
 void VkPostprocess::BlitSceneToPostprocess()
 {
 	fb->GetRenderState()->EndRenderPass();
@@ -115,6 +120,20 @@ void VkPostprocess::BlitSceneToPostprocess()
 	auto cmdbuffer = fb->GetCommands()->GetDrawCommands();
 
 	mCurrentPipelineImage = 0;
+
+#ifdef __SWITCH__
+	// Without multisampling the scene image and post-processing image 0 have
+	// the same size, format and usage: exchange them instead of copying the
+	// whole frame (NVK's blit is a full-screen draw on the 3D engine). The
+	// next frame renders its scene into the image that was image 0.
+	if (rd_vk_sceneswap && buffers->GetSceneSamples() == VK_SAMPLE_COUNT_1_BIT &&
+		buffers->SceneColor.Image->width == buffers->PipelineImage[0].Image->width &&
+		buffers->SceneColor.Image->height == buffers->PipelineImage[0].Image->height)
+	{
+		std::swap(buffers->SceneColor, buffers->PipelineImage[0]);
+		return;
+	}
+#endif
 
 	VkImageTransition()
 		.AddImage(&buffers->SceneColor, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, false)

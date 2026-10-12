@@ -106,6 +106,7 @@
 #include "st_stuff.h"
 #include "startscreen.h"
 #include "nx_perf.h"
+#include "rendering/rdoom_gpubench.h"
 #ifdef __SWITCH__
 #include "common/platform/posix/nx/nx_loadscreen.h"
 #include "common/platform/posix/nx/nx_glthread.h"
@@ -1638,6 +1639,9 @@ void D_DoomLoop ()
 #endif
 				S_UpdateMusic();
 			}
+#ifdef __SWITCH__
+			RDoom_GpuBenchFrame();
+#endif
 			NXPerf_EndFrame();
 #ifdef __SWITCH__
 			NX_Phase("frame done");

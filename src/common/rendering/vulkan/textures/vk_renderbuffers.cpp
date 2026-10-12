@@ -36,6 +36,12 @@ CVAR(Bool, rd_vk_depth32, false, 0)
 // declaring them TRANSIENT_ATTACHMENT (attachment-only) turns it off. Nothing
 // samples these depth buffers except SSAO, which is disabled while this is off.
 CVAR(Bool, rd_vk_zcull, false, 0)
+// Scene colour format: 0 = RGBA16F (UZDoom default), 1 = RGB10A2, 2 = RGBA8.
+// The 32-bit formats halve the bytes every scene pixel, blend, copy and
+// post-processing pass moves through the Tegra X1's shared memory bus; HDR
+// effects (bloom, tonemap) then work in the 0..1 range. Both settings take
+// effect on the next frame (the buffers are rebuilt).
+CVAR(Int, rd_vk_scenefmt, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage)
 {
 	if (rd_vk_zcull)
@@ -88,16 +94,36 @@ void VkRenderBuffers::BeginFrame(int width, int height, int sceneWidth, int scen
 {
 	VkSampleCountFlagBits samples = GetBestSampleCount();
 
-	if (width != mWidth || height != mHeight || mSamples != samples)
+	bool formatChanged = false;
+#ifdef __SWITCH__
+	if (mSceneFmt != rd_vk_scenefmt || mZcull != rd_vk_zcull)
+	{
+		formatChanged = mSceneFmt != -1;
+		mSceneFmt = rd_vk_scenefmt;
+		mZcull = rd_vk_zcull;
+		SceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+		VkFormat wanted = mSceneFmt == 1 ? VK_FORMAT_A2B10G10R10_UNORM_PACK32 : mSceneFmt == 2 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R16G16B16A16_SFLOAT;
+		VkFormatProperties props = {};
+		vkGetPhysicalDeviceFormatProperties(fb->device->PhysicalDevice.Device, wanted, &props);
+		const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT |
+			VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT;
+		if ((props.optimalTilingFeatures & need) == need)
+			SceneColorFormat = wanted;
+		RDoom_SessionSet("vulkan_scene_color", SceneColorFormat == VK_FORMAT_R16G16B16A16_SFLOAT ? "RGBA16F" :
+			SceneColorFormat == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ? "RGB10A2" : "RGBA8");
+	}
+#endif
+
+	if (width != mWidth || height != mHeight || mSamples != samples || formatChanged)
 	{
 		fb->GetCommands()->WaitForCommands(false);
 		fb->GetRenderPassManager()->RenderBuffersReset();
 	}
 
-	if (width != mWidth || height != mHeight)
+	if (width != mWidth || height != mHeight || formatChanged)
 		CreatePipeline(width, height);
 
-	if (width != mWidth || height != mHeight || mSamples != samples)
+	if (width != mWidth || height != mHeight || mSamples != samples || formatChanged)
 		CreateScene(width, height, samples);
 
 	mWidth = width;
@@ -162,13 +188,13 @@ void VkRenderBuffers::CreatePipeline(int width, int height)
 	{
 		PipelineImage[i].Image = ImageBuilder()
 			.Size(width, height)
-			.Format(VK_FORMAT_R16G16B16A16_SFLOAT)
+			.Format(SceneColorFormat)
 			.Usage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 			.DebugName("VkRenderBuffers.PipelineImage")
 			.Create(fb->device.get());
 
 		PipelineImage[i].View = ImageViewBuilder()
-			.Image(PipelineImage[i].Image.get(), VK_FORMAT_R16G16B16A16_SFLOAT)
+			.Image(PipelineImage[i].Image.get(), SceneColorFormat)
 			.DebugName("VkRenderBuffers.PipelineView")
 			.Create(fb->device.get());
 
@@ -202,13 +228,14 @@ void VkRenderBuffers::CreateSceneColor(int width, int height, VkSampleCountFlagB
 	SceneColor.Image = ImageBuilder()
 		.Size(width, height)
 		.Samples(samples)
-		.Format(VK_FORMAT_R16G16B16A16_SFLOAT)
-		.Usage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT)
+		.Format(SceneColorFormat)
+		// same usage as the post-processing images: they get exchanged (rd_vk_sceneswap)
+		.Usage(VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT)
 		.DebugName("VkRenderBuffers.SceneColor")
 		.Create(fb->device.get());
 
 	SceneColor.View = ImageViewBuilder()
-		.Image(SceneColor.Image.get(), VK_FORMAT_R16G16B16A16_SFLOAT)
+		.Image(SceneColor.Image.get(), SceneColorFormat)
 		.DebugName("VkRenderBuffers.SceneColorView")
 		.Create(fb->device.get());
 }

@@ -45,16 +45,21 @@ void (*NXPerf_SummaryHook)(FILE *f) = nullptr;
 // totals over the current summary window (all frames, not only the slow ones)
 static struct
 {
-	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending;
+	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending, gpuframe, gpuscene, gpupost, gpuend;
+	int gpuframes;
 	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits;
 } win;
 
 #ifdef __SWITCH__
+#include <switch.h>
+// handheld and docked run the GPU at different (stock) clocks
+static const char *NXOperationMode() { return appletGetOperationMode() == AppletOperationMode_Console ? "docked" : "handheld"; }
 #include "common/platform/posix/nx/nx_glthread.h"
 static bool NXGLThreadOn() { return NX_GLThreadEnabled(); }
 static const char *NXGLThreadStatus() { return NX_GLThreadStatus(); }
 static void NXGLThreadStats(FILE *f) { NX_GLThreadWriteStats(f); }
 #else
+static const char *NXOperationMode() { return "pc"; }
 static bool NXGLThreadOn() { return false; }
 static const char *NXGLThreadStatus() { return "not available"; }
 static void NXGLThreadStats(FILE *) {}
@@ -165,6 +170,11 @@ void NXPerf_EndFrame()
 		win.vkacquire += nxperf.vkacquire_ms;
 		win.vkpresent += nxperf.vkpresent_ms;
 		win.vkpending += nxperf.vkpending_ms;
+		win.gpuframes += nxperf.gpuframes;
+		win.gpuframe += nxperf.gpu_frame_ms;
+		win.gpuscene += nxperf.gpu_scene_ms;
+		win.gpupost += nxperf.gpu_post_ms;
+		win.gpuend += nxperf.gpu_end_ms;
 		win.draws += nxperf.draws;
 		win.lightuploads += nxperf.lightuploads;
 		win.lightskips += nxperf.lightskips;
@@ -225,6 +235,12 @@ void NXPerf_EndFrame()
 				double n = frames;
 				fprintf(perfFile, "#   vulkan: submits %.1f (%.2f ms in vkQueueSubmit) | cache clean %.2f | acquire %.2f | present %.2f | fence wait at frame end %.2f | wait for previous frame at frame start %.2f (ms per frame)\n",
 					win.vksubmits / n, win.vksubmit / n, win.vkclean / n, win.vkacquire / n, win.vkpresent / n, win.gpuwait / n, win.vkpending / n);
+			}
+			if (win.gpuframes > 0)
+			{
+				double g = win.gpuframes;
+				fprintf(perfFile, "#   gpu (%s): frame %.2f ms = 3D scene %.2f + post-processing %.2f + 2D/present %.2f (avg of %d frames)\n",
+					NXOperationMode(), win.gpuframe / g, win.gpuscene / g, win.gpupost / g, win.gpuend / g, win.gpuframes);
 			}
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);

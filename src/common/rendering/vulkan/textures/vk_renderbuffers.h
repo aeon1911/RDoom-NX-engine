@@ -57,6 +57,9 @@ public:
 	VkFormat PipelineDepthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 	VkFormat SceneDepthStencilFormat = VK_FORMAT_D24_UNORM_S8_UINT;
 	VkFormat SceneNormalFormat = VK_FORMAT_A2R10G10B10_UNORM_PACK32;
+	// colour format of the scene and of the post-processing images
+	// (Switch: rd_vk_scenefmt, half the memory traffic with 32-bit pixels)
+	VkFormat SceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 
 	static const int NumPipelineImages = 2;
 	VkTextureImage PipelineDepthStencil;
@@ -78,6 +81,8 @@ private:
 
 	int mWidth = 0;
 	int mHeight = 0;
+	int mSceneFmt = -1;		// Switch: rd_vk_scenefmt / rd_vk_zcull the buffers were made with
+	bool mZcull = false;
 	int mSceneWidth = 0;
 	int mSceneHeight = 0;
 	VkSampleCountFlagBits mSamples = VK_SAMPLE_COUNT_1_BIT;
