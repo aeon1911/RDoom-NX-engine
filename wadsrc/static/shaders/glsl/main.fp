@@ -57,6 +57,25 @@ vec4 ProcessLight(Material mat, vec4 color);
 vec3 ProcessMaterialLight(Material material, vec3 color);
 vec2 GetTexCoord();
 
+//===========================================================================
+//
+// Light list range of the current surface (uLightIndex >= 0).
+// The header holds where the modulated, subtractive and additive lists end,
+// in vec4s (4 per light). It is checked before any loop uses it: a header
+// read back as garbage would make the light loops practically endless and
+// stop the GPU (a fifo idle timeout on the Switch's Tegra X1). Anything
+// implausible, NaN included, means no dynamic lights on this surface.
+//
+//===========================================================================
+
+ivec4 getLightRange()
+{
+	vec4 header = lights[uLightIndex];
+	if (header.x == 0.0 && header.y >= 0.0 && header.y <= header.z && header.z <= header.w && header.w <= 1024.0)
+		return ivec4(header) + ivec4(uLightIndex + 1);
+	return ivec4(uLightIndex + 1);
+}
+
 // These get Or'ed into uTextureMode because it only uses its 3 lowermost bits.
 const int TEXF_Brightmap = 0x10000;
 const int TEXF_Detailmap = 0x20000;

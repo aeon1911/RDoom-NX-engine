@@ -58,7 +58,7 @@ vec3 ProcessMaterialLight(Material material, vec3 color)
 
 	if (uLightIndex >= 0)
 	{
-		ivec4 lightRange = ivec4(lights[uLightIndex]) + ivec4(uLightIndex + 1);
+		ivec4 lightRange = getLightRange();
 		if (lightRange.z > lightRange.x)
 		{
 			// modulated lights
@@ -93,7 +93,7 @@ vec3 ProcessMaterialLight(Material material, vec3 color)
 
 	if (uLightIndex >= 0)
 	{
-		ivec4 lightRange = ivec4(lights[uLightIndex]) + ivec4(uLightIndex + 1);
+		ivec4 lightRange = getLightRange();
 		if (lightRange.w > lightRange.z)
 		{
 			vec4 addlight = vec4(0.0,0.0,0.0,0.0);
