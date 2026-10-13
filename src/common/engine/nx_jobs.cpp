@@ -38,9 +38,10 @@ namespace
 	{
 		std::mutex mutex;
 		std::condition_variable work, idle;
-		// things needed right now go first, then likely-needed-soon, then prefetching
-		std::deque<std::function<void()>> now, high, low;
-		bool empty() const { return now.empty() && high.empty() && low.empty(); }
+		// what the game thread may wait for goes first (sounds), then things needed
+		// right now (sprite pictures), then likely-needed-soon, then prefetching
+		std::deque<std::function<void()>> urgent, now, high, low;
+		bool empty() const { return urgent.empty() && now.empty() && high.empty() && low.empty(); }
 		int running = 0;
 		int threads = 0;
 		bool started = false;
@@ -67,7 +68,7 @@ namespace
 				std::unique_lock<std::mutex> lock(p.mutex);
 				p.work.wait(lock, [&p] { return !p.empty() || p.quit; });
 				if (p.quit) return;
-				auto &q = !p.now.empty() ? p.now : !p.high.empty() ? p.high : p.low;
+				auto &q = !p.urgent.empty() ? p.urgent : !p.now.empty() ? p.now : !p.high.empty() ? p.high : p.low;
 				job = std::move(q.front());
 				q.pop_front();
 				p.running++;
@@ -109,6 +110,7 @@ namespace
 			std::lock_guard<std::mutex> lock(p.mutex);
 			if (p.quit) return;
 			p.quit = true;
+			p.urgent.clear();
 			p.now.clear();
 			p.high.clear();
 			p.low.clear();
@@ -177,7 +179,8 @@ void NXJobs_Push(std::function<void()> job, int priority)
 			try { job(); } catch (...) {}
 			return;
 		}
-		if (priority >= NXJOB_NOW) p.now.push_back(std::move(job));
+		if (priority >= NXJOB_URGENT) p.urgent.push_back(std::move(job));
+		else if (priority == NXJOB_NOW) p.now.push_back(std::move(job));
 		else if (priority == NXJOB_HIGH) p.high.push_back(std::move(job));
 		else p.low.push_back(std::move(job));
 	}

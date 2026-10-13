@@ -20,6 +20,13 @@
 #include "p_pspr.h"
 #include "c_cvars.h"
 #include "printf.h"
+#include "nx_jobs.h"
+#include "nx_perf.h"
+#include <atomic>
+#include <deque>
+#include <memory>
+#include <mutex>
+#include <unordered_map>
 EXTERN_CVAR(Int, nx_perflog)
 
 // priority: 0 = prefetch, 1 = likely needed soon, 2 = needed now
@@ -29,6 +36,7 @@ int (*NXSpriteReadyHook)(FGameTexture *gtex) = nullptr;
 // for the upload budget): drawing it would only show a transparent placeholder
 bool (*NXSpriteDrawableHook)(FGameTexture *gtex, int translation, int scaleflags) = nullptr;
 static TMap<PClassActor *, bool> NXPrefetched;
+static std::deque<FGameTexture *> NXPendingHigh, NXPendingLow;	// see NXPrefetch_Pump
 
 // last frame of each weapon layer that could be shown
 struct NXHeldFrame
@@ -41,19 +49,128 @@ static TMap<DPSprite *, NXHeldFrame> NXHeldFrames;
 // state each weapon layer was in when its upcoming frames were last queued
 static TMap<DPSprite *, FState *> NXLookahead;
 
+//==========================================================================
+//
+// Sprite border trimming in the background
+//
+// The first time a sprite is drawn, the renderer decodes its whole picture
+// just to find the empty border around it (FTexture::TrimBorders), on the
+// game thread, and then decodes it a second time for the upload. An
+// explosion in Brutal Doom brings dozens of new pictures at once: on the
+// Switch that was 100-150 ms of PNG decoding inside one frame. The trim is
+// now computed by a worker (nx_jobs) and the sprite is left out until its
+// numbers are ready, usually one or two frames later.
+//
+//==========================================================================
+
+#ifdef __SWITCH__
+CVAR(Bool, rd_async_sprites, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
+CVAR(Bool, rd_async_sprites, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
+
+extern thread_local bool nx_asyncworker;
+
+namespace
+{
+	struct TrimJob
+	{
+		std::atomic<bool> started{ false }, done{ false }, bumped{ false };
+		uint16_t trim[4] = {};
+		bool result = false;
+	};
+	std::mutex trimMutex;
+	std::unordered_map<FGameTexture *, std::shared_ptr<TrimJob>> trimJobs;
+	// first frames of a level: everything synchronous, so the first view is complete
+	int trimWarmup = 3;
+
+	void RunTrim(const std::shared_ptr<TrimJob> &job, FTexture *tex)
+	{
+		if (job->started.exchange(true)) return;
+		nx_asyncworker = true;
+		job->result = tex->TrimBorders(job->trim);
+		nx_asyncworker = false;
+		job->done = true;
+	}
+
+	// call with trimMutex held
+	void QueueTrim(FGameTexture *gtex, int priority)
+	{
+		auto it = trimJobs.find(gtex);
+		if (it != trimJobs.end())
+		{
+			auto job = it->second;
+			if (priority >= NXJOB_NOW && !job->started && !job->bumped.exchange(true))
+			{
+				FTexture *tex = gtex->GetTexture();
+				NXJobs_Push([job, tex]() { RunTrim(job, tex); }, NXJOB_NOW);
+			}
+			return;
+		}
+		auto job = std::make_shared<TrimJob>();
+		trimJobs.emplace(gtex, job);
+		FTexture *tex = gtex->GetTexture();
+		NXJobs_Push([job, tex]() { RunTrim(job, tex); }, priority);
+	}
+
+	bool TrimAsync(FGameTexture *gtex)
+	{
+		// only the expanded sprite frame (index 1) needs the decoded picture
+		return rd_async_sprites && gtex->GetTexture() != nullptr && !gtex->GetTexture()->isHardwareCanvas() && gtex->ShouldExpandSprite() && NXJobs_Enabled();
+	}
+}
+
+// false: the sprite's positioning is still being computed, leave it out of this frame
+bool NXSpriteDataReady(FGameTexture *gtex)
+{
+	if (gtex == nullptr || gtex->HasSpriteData() || trimWarmup > 0 || !TrimAsync(gtex))
+		return true;
+	std::shared_ptr<TrimJob> job;
+	{
+		std::lock_guard<std::mutex> lock(trimMutex);
+		auto it = trimJobs.find(gtex);
+		if (it == trimJobs.end() || !it->second->done)
+		{
+			QueueTrim(gtex, NXJOB_NOW);
+			nxperf.spriteskips++;
+			return false;
+		}
+		job = it->second;
+		trimJobs.erase(it);
+	}
+	gtex->SetupSpriteData(job->trim, job->result);
+	return true;
+}
+
+static void PrefetchTrim(FGameTexture *gtex, int priority)
+{
+	if (gtex == nullptr || !gtex->isValid() || gtex->HasSpriteData() || !TrimAsync(gtex))
+		return;
+	std::lock_guard<std::mutex> lock(trimMutex);
+	QueueTrim(gtex, priority);
+}
+
 void NXPrefetch_NewLevel()
 {
 	NXPrefetched.Clear();
 	NXHeldFrames.Clear();
 	NXLookahead.Clear();
+	// textures may go away with the old level: nothing may still be trimming
+	NXPendingHigh.clear();
+	NXPendingLow.clear();
+	NXJobs_WaitAll();
+	std::lock_guard<std::mutex> lock(trimMutex);
+	trimJobs.clear();
+	trimWarmup = 3;
 }
 
 // If a weapon frame is still being decoded, keep showing the previous
 // frame of that layer (instead of making the gun vanish for a moment).
 FGameTexture *NXHoldWeaponFrame(DPSprite *psp, FGameTexture *tex, bool &mirror)
 {
-	if (NXSpriteReadyHook == nullptr || psp == nullptr || tex == nullptr) return tex;
-	int state = NXSpriteReadyHook(tex);
+	if (psp == nullptr || tex == nullptr) return tex;
+	int state = NXSpriteReadyHook ? NXSpriteReadyHook(tex) : 1;
+	if (!NXSpriteDataReady(tex) && state > 0) state = 0;
 	if (state > 0)
 	{
 		if (NXHeldFrames.CountUsed() > 256) NXHeldFrames.Clear();
@@ -69,6 +186,40 @@ FGameTexture *NXHoldWeaponFrame(DPSprite *psp, FGameTexture *tex, bool &mirror)
 		return held->tex;
 	}
 	return tex;
+}
+
+// Pictures to prefetch. Preparing one (material, queueing the decode) costs
+// tens of microseconds on the game thread, and a class can bring hundreds of
+// them - Brutal Doom spawning its casings, smoke and gibs for the first time
+// meant 50+ ms inside one tic. Only what the HUD needs right now is queued
+// at once; the rest goes through these lists at most PumpMs per frame.
+static const double PumpMs = 0.75;
+
+static void NXPrefetchNow(FGameTexture *gtex, int priority)
+{
+	PrefetchTrim(gtex, priority);
+	if (NXPrefetchSpriteHook) NXPrefetchSpriteHook(gtex, priority);
+}
+
+static void NXPrefetchTexture(FGameTexture *gtex, int priority)
+{
+	if (gtex == nullptr) return;
+	if (priority >= 2) NXPrefetchNow(gtex, priority);
+	else (priority == 1 ? NXPendingHigh : NXPendingLow).push_back(gtex);
+}
+
+static void NXPrefetch_Pump()
+{
+	const double start = NXPerf_NowMS();
+	while (!NXPendingHigh.empty() || !NXPendingLow.empty())
+	{
+		auto &q = !NXPendingHigh.empty() ? NXPendingHigh : NXPendingLow;
+		const int priority = &q == &NXPendingHigh ? 1 : 0;
+		FGameTexture *gtex = q.front();
+		q.pop_front();
+		NXPrefetchNow(gtex, priority);
+		if (NXPerf_NowMS() - start >= PumpMs) break;
+	}
 }
 
 struct NXPrefetchList
@@ -96,7 +247,7 @@ struct NXPrefetchList
 			if (!id.isValid()) continue;
 			if (seen.CheckKey(id.GetIndex())) continue;
 			seen.Insert(id.GetIndex(), true);
-			NXPrefetchSpriteHook(TexMan.GetGameTexture(id), priority);
+			NXPrefetchTexture(TexMan.GetGameTexture(id), priority);
 			count++;
 		}
 	}
@@ -116,7 +267,7 @@ struct NXPrefetchList
 
 void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent)
 {
-	if (NXPrefetchSpriteHook == nullptr || cls == nullptr) return;
+	if ((NXPrefetchSpriteHook == nullptr && !rd_async_sprites) || cls == nullptr) return;
 	if (NXPrefetched.CheckKey(cls)) return;
 	NXPrefetched.Insert(cls, true);
 
@@ -142,7 +293,7 @@ void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent)
 // in the order they're most likely to be needed.
 static void NXPrefetch_Weapon(PClassActor *cls)
 {
-	if (NXPrefetchSpriteHook == nullptr || cls == nullptr) return;
+	if ((NXPrefetchSpriteHook == nullptr && !rd_async_sprites) || cls == nullptr) return;
 	if (NXPrefetched.CheckKey(cls)) return;
 	NXPrefetched.Insert(cls, true);
 
@@ -163,7 +314,10 @@ static void NXPrefetch_Weapon(PClassActor *cls)
 
 void NXPrefetch_Player(player_t *player)
 {
-	if (NXPrefetchSpriteHook == nullptr || player == nullptr) return;
+	// called once per rendered frame
+	if (trimWarmup > 0) trimWarmup--;
+	else NXPrefetch_Pump();
+	if ((NXPrefetchSpriteHook == nullptr && !rd_async_sprites) || player == nullptr) return;
 	if (player->ReadyWeapon) NXPrefetch_Weapon(player->ReadyWeapon->GetClass());
 	if (player->PendingWeapon && player->PendingWeapon != WP_NOCHANGE)
 		NXPrefetch_Weapon(static_cast<AActor *>(player->PendingWeapon)->GetClass());

@@ -89,8 +89,10 @@ CUSTOM_CVAR(Int, gl_fuzztype, 8, CVAR_ARCHIVE)
 	if (self < 0 || self > 8) self = 0;
 }
 
-// Switch port (gles_asynctex.cpp): world sprite not on the GPU yet
+// Switch port (gles_asynctex.cpp, vk_asynctex.cpp): world sprite not on the GPU yet
 extern bool (*NXSpriteDrawableHook)(FGameTexture *gtex, int translation, int scaleflags);
+// Switch port (hw_nxprefetch.cpp): sprite border trim still being computed
+bool NXSpriteDataReady(FGameTexture *gtex);
 
 //==========================================================================
 //
@@ -1066,6 +1068,7 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 		int type = thing->renderflags & RF_SPRITETYPEMASK;
 		auto tex = TexMan.GetGameTexture(patch, false);
 		if (!tex || !tex->isValid()) return;
+		if (!NXSpriteDataReady(tex)) return;
 		auto& spi = tex->GetSpritePositioning(type == RF_FACESPRITE);
 
 		offx = (float)thing->GetSpriteOffset(false);

@@ -62,6 +62,7 @@
 #include "serialize_obj.h" // IWYU pragma: keep
 #include "serializer_doom.h"
 #include "vm.h"
+#include "nx_perf.h"
 
 extern int paused;
 
@@ -1628,6 +1629,7 @@ FSerializer& FSafePosition::Serialize(FSerializer& arc, const char* name)
 
 void P_PlayerThink (player_t *player)
 {
+	NXPERF_SCOPE(player_ms, nullptr);
 	usercmd_t *cmd = &player->cmd;
 
 	if (player->mo == NULL)

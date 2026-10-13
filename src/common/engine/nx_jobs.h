@@ -4,8 +4,9 @@
 // game doesn't stall every time something new appears or makes a noise.
 #include <functional>
 
-// priorities: something is waiting for it right now / likely needed soon / prefetching
-enum { NXJOB_LOW = 0, NXJOB_HIGH = 1, NXJOB_NOW = 2 };
+// priorities: the game thread may block on it (sounds) / something is waiting
+// for it right now / likely needed soon / prefetching
+enum { NXJOB_LOW = 0, NXJOB_HIGH = 1, NXJOB_NOW = 2, NXJOB_URGENT = 3 };
 void NXJobs_Push(std::function<void()> job, int priority);
 // waits until every queued and running job has finished
 void NXJobs_WaitAll();

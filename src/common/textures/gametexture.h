@@ -167,7 +167,8 @@ public:
 	void CreateDefaultBrightmap();
 	void AddAutoMaterials();
 	bool ShouldExpandSprite();
-	void SetupSpriteData();
+	// pretrim: border trim already computed by TrimBorders (Switch port: on a worker thread)
+	void SetupSpriteData(const uint16_t *pretrim = nullptr, bool pretrimResult = false);
 	void SetSpriteRect();
 
 	ETextureType GetUseType() const { return UseType; }
@@ -341,6 +342,7 @@ public:
 	}
 
 	const SpritePositioningInfo& GetSpritePositioning(int which) { if (spi == nullptr) SetupSpriteData(); return spi[which]; }
+	bool HasSpriteData() const { return spi != nullptr; }
 	int GetAreas(FloatRect** pAreas) const;
 
 	bool GetTranslucency()

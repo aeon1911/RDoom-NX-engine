@@ -25,6 +25,7 @@
 #include "vulkan/system/vk_renderdevice.h"
 #include "vulkan/system/vk_commandbuffer.h"
 #include "c_cvars.h"
+#include "common/platform/posix/nx/rdoom_nx.h"
 
 CVAR(Bool, rd_vk_blitupload, true, 0)
 
@@ -57,7 +58,14 @@ bool NX_UploadViaBlit(VulkanRenderDevice *fb, VulkanCommandBuffer *cmd, VkImage 
 		.DebugName("NX_UploadViaBlit.linear")
 		.TryCreate(fb->device.get());
 	if (!src)
+	{
+		// the copy path that follows uses NVK's compute copy (black in Ryujinx)
+		static int failures = 0;
+		FString n;
+		n.Format("%d (last %dx%d)", ++failures, w, h);
+		RDoom_SessionSet("vulkan_blit_upload_failed", n.GetChars());
 		return false;
+	}
 
 	VkImageSubresource sub = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0 };
 	VkSubresourceLayout layout = {};

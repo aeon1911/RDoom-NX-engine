@@ -776,6 +776,7 @@ set (VULKAN_SOURCES
 	common/rendering/vulkan/shaders/vk_ppshader.cpp
 	common/rendering/vulkan/textures/vk_samplers.cpp
 	common/rendering/vulkan/textures/vk_hwtexture.cpp
+	common/rendering/vulkan/textures/vk_asynctex.cpp
 	common/rendering/vulkan/textures/vk_nxupload.cpp
 	common/rendering/vulkan/textures/vk_pptexture.cpp
 	common/rendering/vulkan/textures/vk_imagetransition.cpp

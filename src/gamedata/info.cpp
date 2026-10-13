@@ -33,6 +33,8 @@
 #include "g_levellocals.h"
 #include "gi.h"
 #include "info.h"
+#include "nx_perf.h"
+#include "vmintern.h"
 #include "p_local.h"
 #include "r_state.h"
 #include "stats.h"
@@ -150,6 +152,21 @@ bool FState::CallAction(AActor *self, AActor *stateowner, FStateParamInfo *info,
 	if (ActionFunc != nullptr)
 	{
 		ActionCycles.Clock();
+		// perf.log: actions that take a big part of a frame, with their name
+		struct NXSlowAction
+		{
+			FState *st; AActor *owner; double start = NXPerf_NowMS();
+			~NXSlowAction()
+			{
+				const double ms = NXPerf_NowMS() - start;
+				if (ms < 5.0)
+					return;
+				auto sf = dynamic_cast<VMScriptFunction *>(st->ActionFunc);
+				NXPerf_Note("slow action %.1f ms: %s (%s:%d) in %s", ms, st->ActionFunc->PrintableName ? st->ActionFunc->PrintableName : "?",
+					sf ? sf->SourceFileName.GetChars() : "native", sf && sf->CodeSize > 0 ? sf->PCToLine(sf->Code) : 0,
+					owner ? owner->GetClass()->TypeName.GetChars() : "?");
+			}
+		} nxSlowAction{ this, stateowner };
 
 		// If the function returns a state, store it at *stateret.
 		// If it doesn't return a state but stateret is non-nullptr, we need

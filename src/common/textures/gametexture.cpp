@@ -318,7 +318,7 @@ bool FGameTexture::ShouldExpandSprite()
 //
 //===========================================================================
 
-void FGameTexture::SetupSpriteData()
+void FGameTexture::SetupSpriteData(const uint16_t *pretrim, bool pretrimResult)
 {
 	// Since this is only needed for real sprites it gets allocated on demand.
 	// It also allocates from the image memory arena because it has the same lifetime and to reduce maintenance.
@@ -333,7 +333,13 @@ void FGameTexture::SetupSpriteData()
 
 		if (i == 1 && ShouldExpandSprite())
 		{
-			spi.mTrimResult = Base->TrimBorders(spi.trim) && !GetNoTrimming();	// get the trim size before adding the empty frame
+			if (pretrim)
+			{
+				memcpy(spi.trim, pretrim, sizeof(spi.trim));
+				spi.mTrimResult = pretrimResult && !GetNoTrimming();
+			}
+			else
+				spi.mTrimResult = Base->TrimBorders(spi.trim) && !GetNoTrimming();	// get the trim size before adding the empty frame
 			spi.spriteWidth += 2;
 			spi.spriteHeight += 2;
 		}

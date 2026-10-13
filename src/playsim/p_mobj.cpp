@@ -71,6 +71,7 @@
 #include "shadowinlines.h"
 #include "teaminfo.h"
 #include "thingdef.h"
+#include "nx_perf.h"
 
 // MACROS ------------------------------------------------------------------
 
@@ -5594,6 +5595,13 @@ void ConstructActor(AActor *actor, const DVector3 &pos, bool SpawningMapThing)
 
 AActor *AActor::StaticSpawn(FLevelLocals *Level, PClassActor *type, const DVector3 &pos, replace_t allowreplacement, bool SpawningMapThing)
 {
+	// perf.log "spawn": outermost spawns only (BeginPlay/PostBeginPlay may spawn more)
+	static int nxSpawnDepth = 0;
+	struct NXSpawnTimer
+	{
+		double start = nxSpawnDepth++ == 0 ? NXPerf_NowMS() : -1;
+		~NXSpawnTimer() { if (--nxSpawnDepth == 0) { nxperf.spawn_ms += NXPerf_NowMS() - start; nxperf.spawns++; } }
+	} nxSpawnTimer;
 	if (type == NULL)
 	{
 		I_Error("Tried to spawn a class-less actor\n");

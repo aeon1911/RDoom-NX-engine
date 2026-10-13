@@ -200,6 +200,7 @@ private:
 	struct TextureUse { FString Name; int UseType, ScaleFlags; };
 	std::vector<TextureUse> mTexList;
 	bool mTexLoaded = false, mTexDirty = false, mTexWarming = false;
+	uint64_t mLastTexMs = 0;
 	void LoadTextureList();
 
 	VulkanRenderDevice* fb = nullptr;

@@ -371,8 +371,8 @@ static std::vector<std::pair<std::string, std::string>> g_session;
 // every new pipeline, the session report every 600 frames, sounds printing
 // decoder notes to stderr). Logs are now fully buffered and this low-priority
 // thread flushes them, rewrites engine-session.txt when it changed and writes
-// queued files (the pipeline cache) every two seconds. Quitting with HOME
-// loses at most the last two seconds of log.
+// queued files (the pipeline cache, warm lists) within 0.25 s. Quitting with
+// HOME loses at most the last two seconds of log.
 
 static std::mutex g_ioMutex;	// g_session, g_sessionDirty, g_fileQueue
 static bool g_sessionDirty = false;
@@ -433,10 +433,19 @@ static void FlushOnce()
 
 static void FlushThreadMain(void *)
 {
-	while (g_flushRun)
+	// logs every two seconds; queued files (pipeline cache, warm lists) within
+	// a quarter of a second, so quitting with HOME right after they change
+	// does not lose them
+	for (unsigned tick = 1; g_flushRun; tick++)
 	{
-		svcSleepThread(2000000000ULL);
-		FlushOnce();
+		svcSleepThread(250000000ULL);
+		bool files;
+		{
+			std::lock_guard<std::mutex> lock(g_ioMutex);
+			files = !g_fileQueue.empty();
+		}
+		if (files || (tick % 8) == 0)
+			FlushOnce();
 	}
 }
 

@@ -20,6 +20,11 @@ struct NXPerfCounters
 	double net_ms = 0;		// building/processing input commands
 	double input_ms = 0;	// input events
 	double think_ms = 0;	// actors and other thinkers (part of tic_ms)
+	double player_ms = 0;	// P_PlayerThink: movement and weapon actions (part of tic_ms, not of think_ms)
+	double spawn_ms = 0;	// spawning actors, outermost calls only (inside think_ms/player_ms)
+	int spawns = 0;
+	double sndcall_ms = 0;	// whole SoundEngine::StartSound calls (lookup, async load queueing, start)
+	int sndcalls = 0;
 	double sndstart_ms = 0;	// starting sounds in the sound system (mostly part of tic_ms)
 	double client_ms = 0;	// client-side logic per tic: menus, UI event handlers, HUD tick, client-side thinkers
 	double glsync_ms = 0;	// game thread waiting for the GL driver thread in the middle of a frame
@@ -53,6 +58,8 @@ extern NXPerfCounters nxperf;
 double NXPerf_NowMS();
 void NXPerf_EndFrame();
 void NXPerf_FlushFile();	// background writer (Switch)
+// a "#   note:" line in perf.log (rare events worth naming, e.g. a slow script action)
+void NXPerf_Note(const char *fmt, ...);
 // last completed frame, the simulation time inside it, and the average cost of one tic (0 if none ran)
 double NXPerf_LastFrameMS();
 double NXPerf_LastSimMS();

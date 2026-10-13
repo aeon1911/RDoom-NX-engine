@@ -42,6 +42,9 @@ VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage);
 #endif
 #include "vk_nxupload.h"
 #include "nx_perf.h"
+#ifdef __SWITCH__
+#include "common/platform/posix/nx/rdoom_nx.h"
+#endif
 
 VkHardwareTexture::VkHardwareTexture(VulkanRenderDevice* fb, int numchannels) : fb(fb)
 {
@@ -145,6 +148,12 @@ void VkHardwareTexture::CreateImage(FTexture *tex, int translation, int flags)
 	}
 }
 
+void VkHardwareTexture::CreateFromBuffer(const FTextureBuffer &buffer)
+{
+	// the same as CreateImage for a non-indexed picture, minus the decoding
+	CreateTexture(buffer.mWidth, buffer.mHeight, 4, VK_FORMAT_B8G8R8A8_UNORM, buffer.mBuffer, true);
+}
+
 void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat format, const void *pixels, bool mipmap)
 {
 	if (w <= 0 || h <= 0)
@@ -202,10 +211,17 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 	// every overflow waits for the GPU to go idle (a visible hitch when a
 	// door opens on a new area or an explosion shows its frames the first time)
 	if (fb->GetCommands()->TransferDeleteList->TotalSize > 48 * 1024 * 1024)
+	{
+		static int overflows = 0;
+		FString n;
+		n.Format("%d", ++overflows);
+		RDoom_SessionSet("vulkan_upload_overflow_waits", n.GetChars());
+		fb->GetCommands()->WaitForCommands(false, true);
+	}
 #else
 	if (fb->GetCommands()->TransferDeleteList->TotalSize > 64 * 1024 * 1024)
-#endif
 		fb->GetCommands()->WaitForCommands(false, true);
+#endif
 }
 
 int VkHardwareTexture::GetMipLevels(int w, int h)

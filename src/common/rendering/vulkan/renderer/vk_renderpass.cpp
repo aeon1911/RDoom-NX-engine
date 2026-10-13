@@ -237,8 +237,7 @@ void VkRenderPassManager::TextureFirstUsed(FGameTexture *tex, int scaleFlags)
 	{
 		mTexList.push_back({ name, useType, scaleFlags });
 		mTexDirty = true;
-		mUnsavedPipelines++;	// the saver below also writes this list
-		mLastPipelineMs = I_msTime();
+		mLastTexMs = I_msTime();
 	}
 #endif
 }
@@ -274,7 +273,24 @@ void VkRenderPassManager::PrecacheListedTextures()
 void VkRenderPassManager::SaveCacheWhenIdle()
 {
 #ifdef __SWITCH__
-	if (mUnsavedPipelines == 0 || VulkanDeviceWasLost || I_msTime() - mLastPipelineMs < 3000)
+	if (VulkanDeviceWasLost)
+		return;
+	const uint64_t now = I_msTime();
+	// The texture list goes to the card one second after the last new
+	// picture (the write runs on the background writer): sessions are often
+	// short, start, blow up the barrels, quit, and the list must survive that.
+	if (mTexDirty && now - mLastTexMs >= 1000)
+	{
+		mTexDirty = false;
+		FString out;
+		for (auto &t : mTexList)
+			out.AppendFormat("%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
+		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.GetChars(), out.Len());
+		FString n;
+		n.Format("%d textures", (int)mTexList.size());
+		RDoom_SessionSet("vulkan_texture_list_saved", n.GetChars());
+	}
+	if (mUnsavedPipelines == 0 || now - mLastPipelineMs < 3000)
 		return;
 	mUnsavedPipelines = 0;
 	try
@@ -287,14 +303,6 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	}
 	catch (...)
 	{
-	}
-	if (mTexDirty)
-	{
-		mTexDirty = false;
-		FString out;
-		for (auto &t : mTexList)
-			out.AppendFormat("%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
-		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.GetChars(), out.Len());
 	}
 	if (mWarmDirty)
 	{

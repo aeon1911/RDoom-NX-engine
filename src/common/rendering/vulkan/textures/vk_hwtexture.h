@@ -64,6 +64,10 @@ public:
 	VkTextureImage *GetImage(FTexture *tex, int translation, int flags);
 	VkTextureImage *GetDepthStencil(FTexture *tex);
 
+	// Switch: picture decoded on a worker (vk_asynctex.cpp)
+	bool HasImage() const { return mImage.Image != nullptr; }
+	void CreateFromBuffer(const FTextureBuffer &buffer);
+
 	VulkanRenderDevice* fb = nullptr;
 	std::list<VkHardwareTexture*>::iterator it;
 

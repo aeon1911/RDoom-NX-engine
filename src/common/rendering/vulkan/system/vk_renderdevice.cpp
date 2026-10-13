@@ -60,6 +60,7 @@
 #include "vulkan/textures/vk_renderbuffers.h"
 #include "vulkan/textures/vk_samplers.h"
 #include "vulkan/textures/vk_texture.h"
+#include "vulkan/textures/vk_asynctex.h"
 
 FString JitCaptureStackTrace(int framesToSkip, bool includeNativeFrames, int maxFrames = -1);
 
@@ -129,6 +130,7 @@ VulkanRenderDevice::VulkanRenderDevice(void *hMonitor, bool fullscreen, std::sha
 
 VulkanRenderDevice::~VulkanRenderDevice()
 {
+	VkAsyncTex_Shutdown();	// no worker may still decode into textures that go away below
 	// make sure the GPU is no longer using any objects before RAII tears them down
 	if (vkDeviceWaitIdle(device->device) == VK_ERROR_DEVICE_LOST && !VulkanDeviceWasLost)
 	{
@@ -209,6 +211,7 @@ void VulkanRenderDevice::InitializeState()
 #else
 	mRenderState.reset(new VkRenderState(this));
 #endif
+	VkAsyncTex_Install(this);
 }
 
 void VulkanRenderDevice::Update()
@@ -590,6 +593,7 @@ void VulkanRenderDevice::BeginFrame()
 	mSaveBuffers->BeginFrame(SAVEPICWIDTH, SAVEPICHEIGHT, SAVEPICWIDTH, SAVEPICHEIGHT);
 	mRenderState->BeginFrame();
 	mDescriptorSetManager->BeginFrame();
+	VkAsyncTex_NewFrame();
 }
 
 void VulkanRenderDevice::InitLightmap(int LMTextureSize, int LMTextureCount, TArray<uint16_t>& LMTextureData)

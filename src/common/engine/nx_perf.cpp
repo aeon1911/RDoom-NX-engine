@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <time.h>
 #include "nx_perf.h"
+#include <stdarg.h>
 #include "c_cvars.h"
 #include "i_time.h"
 #include "fs_files.h"
@@ -110,6 +111,18 @@ double NXPerf_LastTicMS()
 	return lastTicMS;
 }
 
+void NXPerf_Note(const char *fmt, ...)
+{
+	if (!perfFile)
+		return;
+	va_list ap;
+	va_start(ap, fmt);
+	fprintf(perfFile, "#   note %.2f: ", startTime < 0 ? 0.0 : (NXPerf_NowMS() - startTime) / 1000.0);
+	vfprintf(perfFile, fmt, ap);
+	fputc('\n', perfFile);
+	va_end(ap);
+}
+
 void NXPerf_FlushFile()
 {
 	if (perfFile)
@@ -208,19 +221,20 @@ void NXPerf_EndFrame()
 					// written to the card by the background writer (NXPerf_FlushFile)
 					setvbuf(perfFile, nullptr, _IOFBF, 64 * 1024);
 					WriteSettings(perfFile);
-					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab\n");
+					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab | player(ms) spawn n/ms skipped | startsound n/ms\n");
 				}
 			}
 			if (perfFile)
 			{
-				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d | %d | %d/%d %d/%d | %d\n",
+				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d | %d | %d/%d %d/%d | %d | %.1f %d/%.1f %d | %d/%.1f\n",
 					(now - startTime) / 1000.0, frame, nxperf.tics, nxperf.tic_ms, nxperf.think_ms, nxperf.display_ms,
 					nxperf.scene_ms, nxperf.bsp_ms, nxperf.hud_ms, nxperf.update_ms, nxperf.gpuwait_ms, nxperf.swap_ms, nxperf.drawitems, nxperf.transitems,
 					nxperf.shaders, nxperf.shader_ms, nxperf.textures, nxperf.tex_ms, (long long)(nxperf.texpixels / 1000),
 					nxperf.sounds, nxperf.sound_ms, nxperf.sndupd_ms, nxperf.sndstarts, nxperf.sndstart_ms,
 					(unsigned long long)dmiss, (unsigned long long)(dbytes >> 10),
 					nxperf.tex_async, nxperf.tex_wait, nxperf.tex_budget, nxperf.tex_preupload, nxperf.snd_async,
-					nxperf.draws, nxperf.dynlights, nxperf.dynlightsall, nxperf.lightuploads, nxperf.lightskips, nxGovLevel);
+					nxperf.draws, nxperf.dynlights, nxperf.dynlightsall, nxperf.lightuploads, nxperf.lightskips, nxGovLevel,
+					nxperf.player_ms, nxperf.spawns, nxperf.spawn_ms, nxperf.spriteskips, nxperf.sndcalls, nxperf.sndcall_ms);
 				linesWritten++;
 			}
 		}

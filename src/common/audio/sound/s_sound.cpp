@@ -164,7 +164,7 @@ void SoundEngine::NXQueueLoad(sfxinfo_t *sfx)
 		}
 		job->result = h;
 		job->done = true;
-	}, NXJOB_NOW);
+	}, NXJOB_URGENT);	// LoadSound blocks on it: ahead of the sprite pictures
 }
 
 void SoundEngine::NXApplyLoads(bool wait, int onlyindex)
@@ -616,6 +616,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	const FVector3 *pt, int channel, EChanFlags flags, FSoundID sound_id, float volume, float attenuation,
 	FRolloffInfo *forcedrolloff, float spitch, float startTime)
 {
+	NXPERF_SCOPE(sndcall_ms, &nxperf.sndcalls);	// perf.log: whole StartSound calls
 	sfxinfo_t *sfx;
 	EChanFlags chanflags = flags;
 	int basepriority;
