@@ -398,6 +398,7 @@ public:
 	float offx, offy;
 	float trans;
 	int dynlightindex;
+	bool nxHalfRes = false;	// a large translucent effect: may go to the half-resolution layer
 
 	FGameTexture *texture;
 	AActor * actor;
@@ -417,6 +418,8 @@ public:
 	void ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *sector, class DVisualThinker *spr);//, int shade, int fakeside)
 	void AdjustVisualThinker(HWDrawInfo *di, DVisualThinker *spr, sector_t *sector);
 	bool NXEffectOverBudget(HWDrawInfo *di, AActor *thing);
+	double NXScreenArea(HWDrawInfo *di) const;
+	bool NXHalfResEffect(HWDrawInfo *di, AActor *thing, double &area) const;
 
 	void DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent);
 };

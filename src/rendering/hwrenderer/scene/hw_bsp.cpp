@@ -1058,6 +1058,7 @@ void HWDrawInfo::RenderBSP(void *node, bool drawpsprites)
 
 	validcount++;	// used for processing sidedefs only once by the renderer.
 	nxEffectArea = 0;
+	nxHalfArea = 0;
 
 	multithread = gl_multithread;
 	if (multithread)

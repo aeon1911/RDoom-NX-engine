@@ -45,6 +45,11 @@ CVAR(Bool, rd_vk_zcull, false, 0)
 // on screen is the same, and translucent layers (Brutal Doom's smoke) blend at
 // full rate instead of the half rate and double traffic of RGBA16F.
 CVAR(Int, rd_vk_scenefmt, 2, CVAR_GLOBALCONFIG)
+// Translucent effect sprites (smoke, fire) in a half-resolution layer blended
+// over the scene (HWDrawInfo::NXRenderHalfEffects). Its depth is drawn from
+// the scene depth, which then cannot be a transient attachment and gets ZCULL
+// like rd_vk_zcull 1 (fine on hardware since the light-header fix: 0% either way).
+CVAR(Bool, rd_vk_halfeffects, true, CVAR_GLOBALCONFIG)
 VkImageUsageFlags RDoom_DepthUsage(VkImageUsageFlags usage)
 {
 	if (rd_vk_zcull)
@@ -99,11 +104,12 @@ void VkRenderBuffers::BeginFrame(int width, int height, int sceneWidth, int scen
 
 	bool formatChanged = false;
 #ifdef __SWITCH__
-	if (mSceneFmt != rd_vk_scenefmt || mZcull != rd_vk_zcull)
+	if (mSceneFmt != rd_vk_scenefmt || mZcull != rd_vk_zcull || mHalfFx != rd_vk_halfeffects)
 	{
 		formatChanged = mSceneFmt != -1;
 		mSceneFmt = rd_vk_scenefmt;
 		mZcull = rd_vk_zcull;
+		mHalfFx = rd_vk_halfeffects;
 		SceneColorFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 		VkFormat wanted = mSceneFmt == 1 ? VK_FORMAT_A2B10G10R10_UNORM_PACK32 : mSceneFmt == 2 ? VK_FORMAT_R8G8B8A8_UNORM : VK_FORMAT_R16G16B16A16_SFLOAT;
 		VkFormatProperties props = {};
@@ -210,6 +216,9 @@ void VkRenderBuffers::CreateScene(int width, int height, VkSampleCountFlagBits s
 {
 	SceneColor.Reset(fb);
 	SceneDepthStencil.Reset(fb);
+#ifdef __SWITCH__
+	NXFxDepth.Reset(fb);
+#endif
 	SceneNormal.Reset(fb);
 	SceneFog.Reset(fb);
 
@@ -248,10 +257,21 @@ void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCou
 #ifdef __SWITCH__
 	if (rd_vk_depth32)
 		SceneDepthStencilFormat = VK_FORMAT_D32_SFLOAT_S8_UINT;
+	// the half-resolution effects layer reads this depth buffer as a texture
+	// (single sample)
+	{
+		VkFormatProperties props = {};
+		vkGetPhysicalDeviceFormatProperties(fb->device->PhysicalDevice.Device, SceneDepthStencilFormat, &props);
+		const VkFormatFeatureFlags need = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		mNXFxSupported = rd_vk_halfeffects && samples == VK_SAMPLE_COUNT_1_BIT && (props.optimalTilingFeatures & need) == need;
+		RDoom_SessionSet("vulkan_half_effects", !rd_vk_halfeffects ? "off (rd_vk_halfeffects 0)" : mNXFxSupported ? "on (smoke and fire at half resolution)" :
+			samples != VK_SAMPLE_COUNT_1_BIT ? "off (multisampling)" : "off (depth format cannot be sampled)");
+	}
+	const bool zcull = rd_vk_zcull || mNXFxSupported;
 	{
 		FString d;
 		d.Format("%s, %dx%d, %d sample(s), ZCULL %s", SceneDepthStencilFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ? "D32_SFLOAT_S8" : "D24_UNORM_S8", width, height, (int)samples,
-			rd_vk_zcull ? "allowed (rd_vk_zcull 1)" : "off (transient depth attachments)");
+			rd_vk_zcull ? "allowed (rd_vk_zcull 1)" : zcull ? "allowed (depth sampled for the half-resolution effects)" : "off (transient depth attachments)");
 		RDoom_SessionSet("vulkan_scene_depth", d.GetChars());
 	}
 #endif
@@ -260,7 +280,10 @@ void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCou
 	builder.Samples(samples);
 	builder.Format(SceneDepthStencilFormat);
 	#ifdef __SWITCH__
-	builder.Usage(RDoom_DepthUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
+	if (mNXFxSupported)
+		builder.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
+	else
+		builder.Usage(RDoom_DepthUsage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT));
 #else
 	builder.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT);
 #endif
@@ -288,6 +311,37 @@ void VkRenderBuffers::CreateSceneDepthStencil(int width, int height, VkSampleCou
 		.DebugName("VkRenderBuffers.SceneDepthView")
 		.Create(fb->device.get());
 }
+
+#ifdef __SWITCH__
+VkTextureImage *VkRenderBuffers::GetNXFxDepth(int width, int height)
+{
+	if (!mNXFxSupported)
+		return nullptr;
+	if (NXFxDepth.Image && (int)NXFxDepth.Image->width == width && (int)NXFxDepth.Image->height == height)
+		return &NXFxDepth;
+	NXFxDepth.Reset(fb);
+	// written through gl_FragDepth: TRANSFER_DST keeps it out of NVK's
+	// ZCULL-compatible usages (and no pass clears its depth)
+	ImageBuilder builder;
+	builder.Size(width, height);
+	builder.Format(SceneDepthStencilFormat);
+	builder.Usage(VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+	if (!builder.IsFormatSupported(fb->device.get()))
+	{
+		mNXFxSupported = false;
+		RDoom_SessionSet("vulkan_half_effects", "off (depth image for the layer not supported)");
+		return nullptr;
+	}
+	builder.DebugName("VkRenderBuffers.NXFxDepth");
+	NXFxDepth.Image = builder.Create(fb->device.get());
+	NXFxDepth.AspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	NXFxDepth.View = ImageViewBuilder()
+		.Image(NXFxDepth.Image.get(), SceneDepthStencilFormat, VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)
+		.DebugName("VkRenderBuffers.NXFxDepthView")
+		.Create(fb->device.get());
+	return &NXFxDepth;
+}
+#endif
 
 void VkRenderBuffers::CreateSceneFog(int width, int height, VkSampleCountFlagBits samples)
 {

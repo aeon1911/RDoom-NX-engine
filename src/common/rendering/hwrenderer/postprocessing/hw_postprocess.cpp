@@ -550,6 +550,66 @@ void PPSceneUpscale::Render(PPRenderState *renderstate, const IntRect &to)
 	renderstate->PopGroup();
 }
 
+PPTexture *PPNXEffects::Layer(int width, int height)
+{
+	if (!mCreated || Color.Width != width || Color.Height != height)
+	{
+		Color = { width, height, PixelFormat::Rgba8 };	// 8-bit alpha: a 10:10:10:2 scene format could not carry it
+		Depth = { width, height, PixelFormat::R32f };
+		mCreated = true;
+	}
+	return &Color;
+}
+
+void PPNXEffects::Blend(PPBlendMode &mode)
+{
+	mode.BlendOp = STYLEOP_Add;
+	mode.SrcAlpha = STYLEALPHA_One;
+	mode.DestAlpha = STYLEALPHA_Src;
+	mode.Flags = 0;
+}
+
+void PPNXEffects::CopyDepth(PPRenderState *renderstate, const IntRect &layerRect, bool colorProxy)
+{
+	ExtractUniforms uniforms;
+	uniforms.Scale = screen->SceneScale();
+	uniforms.Offset = screen->SceneOffset();
+
+	renderstate->PushGroup("halfeffects depth");
+	renderstate->Clear();
+	renderstate->Shader = &DepthShader;
+	renderstate->Uniforms.Set(uniforms);
+	renderstate->Viewport = layerRect;
+	if (colorProxy)
+		renderstate->SetInputSceneColor(0);	// tests: checks the mapping where the depth cannot be read (Ryujinx)
+	else
+		renderstate->SetInputSceneDepth(0);
+	renderstate->SetOutputTexture(&Depth);
+	renderstate->SetNoBlend();
+	renderstate->Draw();
+	renderstate->PopGroup();
+}
+
+void PPNXEffects::Composite(PPRenderState *renderstate, const IntRect &layerRect, int debug)
+{
+	ExtractUniforms uniforms;
+	uniforms.Scale = { layerRect.width / (float)Color.Width, layerRect.height / (float)Color.Height };
+	uniforms.Offset = { layerRect.left / (float)Color.Width, layerRect.top / (float)Color.Height };
+
+	renderstate->PushGroup("halfeffects");
+	renderstate->Clear();
+	renderstate->Shader = &Shader;
+	renderstate->Uniforms.Set(uniforms);
+	renderstate->Viewport = screen->mSceneViewport;
+	renderstate->SetInputTexture(0, debug >= 9 ? &Depth : &Color, PPFilterMode::Linear);	// tests: 1 layer, 9 depth copy, 10 colour through the depth copy
+	renderstate->SetOutputSceneColor();
+	Blend(renderstate->BlendMode);
+	if (debug == 1 || debug >= 9)
+		renderstate->SetNoBlend();
+	renderstate->Draw();
+	renderstate->PopGroup();
+}
+
 void PPColormap::Render(PPRenderState *renderstate, int fixedcm, float flash)
 {
 	ColormapUniforms uniforms;

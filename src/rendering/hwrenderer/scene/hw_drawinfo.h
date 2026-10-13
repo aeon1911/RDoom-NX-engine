@@ -108,6 +108,7 @@ enum DrawListType
 
 	GLDL_TRANSLUCENT,
 	GLDL_TRANSLUCENTBORDER,
+	GLDL_NXEFFECTS,		// translucent effect sprites of the half-resolution layer (Switch Vulkan)
 
 	GLDL_TYPES,
 };
@@ -117,6 +118,8 @@ struct HWDrawInfo
 {
 	// Switch port: screen area covered by translucent effects in this scene (NXEffectOverBudget)
 	double nxEffectArea = 0;
+	bool nxHalfEffects = false;	// this view collects effect sprites in GLDL_NXEFFECTS
+	double nxHalfArea = 0;		// their screen area (screens): the layer pays off from rd_halfeffects_minscreen
 	struct wallseg
 	{
 		float x1, y1, z1, x2, y2, z2;
@@ -271,6 +274,7 @@ public:
 	void CreateScene(bool drawpsprites);
 	void RenderScene(FRenderState &state);
 	void RenderTranslucent(FRenderState &state);
+	void NXRenderHalfEffects(FRenderState &state);
 	void RenderPortal(HWPortal *p, FRenderState &state, bool usestencil);
 	void EndDrawScene(sector_t * viewsector, FRenderState &state);
 	void DrawEndScene2D(sector_t * viewsector, FRenderState &state);

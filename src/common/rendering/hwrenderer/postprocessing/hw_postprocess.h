@@ -898,10 +898,33 @@ private:
 	PPShader Upscale = { "shaders/pp/upscale.fp", "", ExtractUniforms::Desc() };
 };
 
+// Switch Vulkan: half-resolution layer of the translucent effect sprites
+// (HWDrawInfo::NXRenderHalfEffects). Cleared to (0,0,0,1) and drawn with alpha
+// blend factors that keep, in its alpha, how much of the scene still shows
+// through; blended over the scene as scene * a + rgb.
+class PPNXEffects
+{
+public:
+	PPTexture *Layer(int width, int height);
+	PPTexture *DepthCopy() { return &Depth; }	// scene depth at the layer's size (R32F)
+	void CopyDepth(PPRenderState *renderstate, const IntRect &layerRect, bool colorProxy = false);
+	void Composite(PPRenderState *renderstate, const IntRect &layerRect, int debug = 0);
+	static void Blend(PPBlendMode &mode);	// scene * layer alpha + layer colour
+
+	PPShader Shader = { "shaders/pp/upscale.fp", "", ExtractUniforms::Desc() };
+	PPShader DepthShader = { "shaders/pp/nxdepth.fp", "", ExtractUniforms::Desc() };
+
+private:
+	PPTexture Color;
+	PPTexture Depth;
+	bool mCreated = false;
+};
+
 class Postprocess
 {
 public:
 	PPSceneUpscale upscale;
+	PPNXEffects nxeffects;
 	PPBloom bloom;
 	PPLensDistort lens;
 	PPFXAA fxaa;

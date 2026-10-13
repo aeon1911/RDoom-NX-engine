@@ -35,6 +35,7 @@ class VkShaderManager;
 class VkCommandBufferManager;
 class VkDescriptorSetManager;
 class VkRenderPassManager;
+class VkTextureImage;
 class VkFramebufferManager;
 class VkRaytrace;
 class VkRenderState;
@@ -120,6 +121,9 @@ public:
 	void PrecacheUsedTextures() override;
 #ifdef __SWITCH__
 	bool AllowSSAO() override;
+	bool NXHalfEffectsAvailable() override;
+	bool NXBeginHalfEffects(FRenderState &state) override;
+	void NXEndHalfEffects(FRenderState &state) override;
 #endif
 
 	bool RaytracingEnabled();
@@ -142,6 +146,24 @@ private:
 	bool mSceneScaled = false;
 	IntRect mSceneFull, mSceneSmall;
 	void UpdateDynamicResolution();
+	// half-resolution effects layer: its viewport, the scene clear colour
+	// while it is cleared, first-use costs paid at level load
+	IntRect mNXFxRect;
+	float mNXFxClearSave[4] = {};
+	bool mNXFxWarmed = false;
+	void NXWarmHalfEffects();
+#ifdef __SWITCH__
+	std::unique_ptr<struct NXFxDepthPass> mNXFxDepthPass;
+	bool NXFxDepthPassReady();
+	bool NXFxDepthDownsample(VkTextureImage *depth, const IntRect &sceneRect);
+	// the depth copy read back in the first frames: all zero = this GPU (or
+	// emulator: Ryujinx) cannot sample the depth buffer, the layer turns off
+	void NXFxCheckDepth(VkTextureImage *copy);
+	std::unique_ptr<VulkanBuffer> mNXFxProbe[2];
+	bool mNXFxProbePending[2] = {};
+	int mNXFxDepthState = 0;	// 0 checking, 1 verified, -1 broken
+	int mNXFxZeroChecks = 0;
+#endif
 	std::unique_ptr<VkBufferManager> mBufferManager;
 	std::unique_ptr<VkSamplerManager> mSamplerManager;
 	std::unique_ptr<VkTextureManager> mTextureManager;

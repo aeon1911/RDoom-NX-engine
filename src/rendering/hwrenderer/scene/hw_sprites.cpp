@@ -830,6 +830,7 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 	sector_t rs;
 	sector_t * rendersector;
 
+	nxHalfRes = false;
 	if (thing == nullptr)
 		return;
 
@@ -1490,6 +1491,10 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 
 	if (hw_styleflags != STYLEHW_Solid && !modelframe && !isSpriteShadow && NXEffectOverBudget(di, thing))
 		return;
+	double nxArea;
+	nxHalfRes = hw_styleflags != STYLEHW_Solid && !modelframe && !isSpriteShadow && di->nxHalfEffects && NXHalfResEffect(di, thing, nxArea);
+	if (nxHalfRes)
+		di->nxHalfArea += nxArea;
 	PutSprite(di, hw_styleflags != STYLEHW_Solid);
 	rendered_sprites++;
 }
@@ -1503,6 +1508,7 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 
 void HWSprite::ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *sector, DVisualThinker *spr)//, int shade, int fakeside)
 {
+	nxHalfRes = false;
 	if (!particle || particle->alpha <= 0)
 		return;
 
@@ -1703,15 +1709,10 @@ void HWSprite::ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *s
 
 CVAR(Float, nx_effect_area, 0.f, 0)
 
-bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
+// screen fraction of the sprite: its world size against what the view covers
+// at its depth (horizontal FOV, screen aspect)
+double HWSprite::NXScreenArea(HWDrawInfo *di) const
 {
-	const double budget = NXGov_EffectArea(nx_effect_area);
-	if (budget <= 0 || thing == nullptr)
-		return false;
-	if (!NXIsPureEffect(thing))
-		return false;
-	// screen fraction of the sprite: its world size against what the view
-	// covers at its depth (horizontal FOV, screen aspect)
 	const auto &vp = di->Viewpoint;
 	const double w = sqrt(double(x2 - x1) * (x2 - x1) + double(y2 - y1) * (y2 - y1));
 	const double h = fabs(double(z1 - z2));
@@ -1719,7 +1720,35 @@ bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
 	const double t = vp.FieldOfView.Tan() > 0.01 ? (vp.FieldOfView / 2).Tan() : 1.0;
 	const double aspect = screen->GetHeight() > 0 ? double(screen->GetWidth()) / screen->GetHeight() : 16.0 / 9.0;
 	const double viewArea = 4.0 * d * d * t * t / aspect;
-	const double area = min(1.0, w * h / viewArea);
+	return min(1.0, w * h / viewArea);
+}
+
+// Smoke and fire big enough to cost real fill go to the half-resolution layer;
+// sparks and puffs of a few dozen pixels stay sharp (they cost next to nothing).
+// Only plain alpha and additive blending: the layer keeps how much of the
+// scene shows through in its alpha, which those two can describe.
+CVAR(Float, rd_halfeffects_minarea, 0.004f, CVAR_GLOBALCONFIG)
+
+bool HWSprite::NXHalfResEffect(HWDrawInfo *di, AActor *thing, double &area) const
+{
+	if (thing == nullptr || !NXIsPureEffect(thing))
+		return false;
+	if (RenderStyle.BlendOp != STYLEOP_Add ||
+		(RenderStyle.SrcAlpha != STYLEALPHA_Src && RenderStyle.SrcAlpha != STYLEALPHA_One) ||
+		(RenderStyle.DestAlpha != STYLEALPHA_InvSrc && RenderStyle.DestAlpha != STYLEALPHA_One))
+		return false;
+	area = NXScreenArea(di);
+	return area >= rd_halfeffects_minarea;
+}
+
+bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
+{
+	const double budget = NXGov_EffectArea(nx_effect_area);
+	if (budget <= 0 || thing == nullptr)
+		return false;
+	if (!NXIsPureEffect(thing))
+		return false;
+	const double area = NXScreenArea(di);
 	if (di->nxEffectArea + area > budget)
 	{
 		nxperf.effectsculled++;

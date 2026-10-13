@@ -35,6 +35,8 @@ struct NXPerfCounters
 	int glsyncs = 0;
 	int spriteskips = 0;	// sprite draws skipped because the picture wasn't on the GPU yet
 	int effectsculled = 0;	// translucent effects left out by the stabilizer's screen area budget
+	int halfeffects = 0;	// effect sprites drawn in the half-resolution layer (Switch Vulkan)
+	double halfarea = 0;	// screen area of the effects that could go to that layer (screens)
 	double present_ms = 0;	// copy of the finished frame to the window (waits for a free window buffer)
 	double draw2d_ms = 0;	// 2D drawing (HUD, menus, messages) - part of update_ms
 	double frameend_ms = 0;	// end of the previous frame done at the start of this one (GL driver thread: fence, swap, waits)

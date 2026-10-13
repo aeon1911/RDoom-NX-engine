@@ -480,7 +480,7 @@ void HWDrawInfo::CreateScene(bool drawpsprites)
 			{
 				int n = (int)di->drawlists[i].drawitems.Size();
 				nxperf.drawitems += n;
-				if (i == GLDL_TRANSLUCENT) nxperf.transitems += n;
+				if (i == GLDL_TRANSLUCENT || i == GLDL_NXEFFECTS) nxperf.transitems += n;
 			}
 		}
 	} nxcount{ this };
@@ -614,6 +614,49 @@ void HWDrawInfo::RenderTranslucent(FRenderState &state)
 	state.AlphaFunc(Alpha_GEqual, 0.5f);
 	state.SetDepthMask(true);
 
+	RenderAll.Unclock();
+}
+
+//-----------------------------------------------------------------------------
+//
+// Switch Vulkan: the translucent effect sprites of the main view (smoke, fire,
+// sparks; GLDL_NXEFFECTS) in a layer of half the resolution, blended over the
+// scene by the backend. A fight in Brutal Doom stacks a dozen screen-sized
+// smoke puffs; at a quarter of the pixels they no longer push the whole view
+// down to 60% resolution. They come after the rest of the translucent list,
+// so their order against translucent walls and other sprites is lost.
+//
+//-----------------------------------------------------------------------------
+
+// The layer costs about one full-screen layer of its own (the blend over the
+// scene, plus the depth copy at half size) and saves 3/4 of every effect
+// pixel: below about 0.6 screens of effects they are drawn into the scene
+// (GM20B estimate: blend 0.15-0.3 ms, a screen of lit smoke ~0.5 ms).
+CVAR(Float, rd_halfeffects_minscreen, 0.6f, CVAR_GLOBALCONFIG)
+
+void HWDrawInfo::NXRenderHalfEffects(FRenderState &state)
+{
+	auto &list = drawlists[GLDL_NXEFFECTS];
+	nxperf.halfarea += nxHalfArea;
+	if (list.Size() == 0)
+		return;
+	RenderAll.Clock();
+	// false: draw them into the scene
+	const bool layer = nxHalfArea >= rd_halfeffects_minscreen && screen->NXBeginHalfEffects(state);
+	if (layer)
+		nxperf.halfeffects += list.Size();
+
+	state.AlphaFunc(Alpha_GEqual, gl_mask_sprite_threshold);
+	state.SetRenderStyle(STYLE_Translucent);
+	state.EnableBrightmap(true);
+	state.SetDepthMask(false);
+	list.DrawSorted(this, state);
+	state.EnableBrightmap(false);
+	state.AlphaFunc(Alpha_GEqual, 0.5f);
+	state.SetDepthMask(true);
+
+	if (layer)
+		screen->NXEndHalfEffects(state);
 	RenderAll.Unclock();
 }
 
@@ -1014,6 +1057,7 @@ void HWDrawInfo::DrawScene(int drawmode)
 	auto& vp = Viewpoint;
 
 	bool applySSAO = false;
+	nxHalfEffects = drawmode == DM_MAINVIEW && screen->NXHalfEffectsAvailable();
 	if (drawmode == DM_MAINVIEW)
 	{
 		ssao_portals_available = gl_ssao_portals;
@@ -1062,6 +1106,8 @@ void HWDrawInfo::DrawScene(int drawmode)
 	portalState.EndFrame(this, RenderState);
 	recursion--;
 	RenderTranslucent(RenderState);
+	if (nxHalfEffects)
+		NXRenderHalfEffects(RenderState);
 }
 
 

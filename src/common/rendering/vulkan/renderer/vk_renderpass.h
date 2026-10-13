@@ -41,6 +41,10 @@ class VkPPShader;
 class GraphicsPipelineBuilder;
 class ColorBlendAttachmentBuilder;
 
+// VkPipelineKey::ColorMask bit above the four channel bits: pipeline for the
+// half-resolution effects layer (same size key, so old warm lists stay valid)
+enum { NX_PIPELINE_FXLAYER = 0x100 };
+
 class VkPipelineKey
 {
 public:

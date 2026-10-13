@@ -634,11 +634,36 @@ std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipeli
 	builder.Stencil(VK_STENCIL_OP_KEEP, op2vk[key.StencilPassOp], VK_STENCIL_OP_KEEP, VK_COMPARE_OP_EQUAL, 0xffffffff, 0xffffffff, 0);
 
 	ColorBlendAttachmentBuilder blendbuilder;
-	blendbuilder.ColorWriteMask((VkColorComponentFlags)key.ColorMask);
+	blendbuilder.ColorWriteMask((VkColorComponentFlags)(key.ColorMask & 15));
 	BlendMode(blendbuilder, key.RenderStyle);
+	VkPipelineColorBlendAttachmentState blend = blendbuilder.Create();
+	if (key.ColorMask & NX_PIPELINE_FXLAYER)
+	{
+		// Effects layer: colour blends as in the scene, starting from black;
+		// alpha starts at 1 and becomes the fraction of the scene that still
+		// shows through: alpha blending scales it by (1 - a), additive leaves
+		// it alone, an opaque draw sets it to 0. The composite is then
+		// scene * alpha + colour, the same as drawing them into the scene.
+		if (!blend.blendEnable)
+		{
+			blend.blendEnable = VK_TRUE;
+			blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+			blend.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+			blend.colorBlendOp = VK_BLEND_OP_ADD;
+		}
+		blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+		blend.alphaBlendOp = VK_BLEND_OP_ADD;
+		if (blend.colorBlendOp != VK_BLEND_OP_ADD)
+			blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+		else if (blend.dstColorBlendFactor == VK_BLEND_FACTOR_ONE || blend.dstColorBlendFactor == VK_BLEND_FACTOR_ZERO)
+			blend.dstAlphaBlendFactor = blend.dstColorBlendFactor;
+		else
+			blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+		blend.colorWriteMask |= VK_COLOR_COMPONENT_A_BIT;
+	}
 
 	for (int i = 0; i < PassKey.DrawBuffers; i++)
-		builder.AddColorBlendAttachment(blendbuilder.Create());
+		builder.AddColorBlendAttachment(blend);
 
 	builder.RasterizationSamples((VkSampleCountFlagBits)PassKey.Samples);
 

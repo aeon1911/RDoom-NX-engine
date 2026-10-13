@@ -312,6 +312,11 @@ void VkRenderState::ApplyRenderPass(int dt)
 	pipelineKey.StencilTest = mStencilTest;
 	pipelineKey.StencilPassOp = mStencilOp;
 	pipelineKey.ColorMask = mColorMask;
+	if (mNXFxLayer)
+	{
+		pipelineKey.ColorMask |= NX_PIPELINE_FXLAYER;
+		mNXFxDrawn = true;
+	}
 	pipelineKey.CullMode = mCullMode;
 	pipelineKey.NumTextureLayers = mMaterial.mMaterial ? mMaterial.mMaterial->NumLayers() : 0;
 	pipelineKey.NumTextureLayers = max(pipelineKey.NumTextureLayers, SHADER_MIN_REQUIRED_TEXTURE_LAYERS);// Always force minimum 8 textures as the shader requires it

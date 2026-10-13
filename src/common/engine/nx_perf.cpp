@@ -54,7 +54,8 @@ static struct
 	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending, gpuframe, gpuscene, gpupost, gpuend;
 	int gpuframes;
 	double scalesum; float scalemin;
-	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled;
+	double halfarea, halfareamax;
+	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled, halfeffects;
 } win;
 
 #ifdef __SWITCH__
@@ -195,6 +196,9 @@ void NXPerf_EndFrame()
 		win.glsyncs += nxperf.glsyncs;
 		win.spriteskips += nxperf.spriteskips;
 		win.effectsculled += nxperf.effectsculled;
+		win.halfeffects += nxperf.halfeffects;
+		win.halfarea += nxperf.halfarea;
+		win.halfareamax = std::max(win.halfareamax, nxperf.halfarea);
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
 		win.frameend += nxperf.frameend_ms;
@@ -277,8 +281,8 @@ void NXPerf_EndFrame()
 				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | sprites waiting for their picture per frame %.1f\n",
 					win.tics ? win.tic / win.tics : 0.0, win.tics ? win.thinkers / win.tics : 0, win.drawitems / frames, win.transitems / frames,
 					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
-				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d), effects left out per frame %.1f\n",
-					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n);
+				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d), effects left out per frame %.1f, in the half-resolution layer %.1f (their area %.2f screens, most %.2f)\n",
+					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n, win.halfeffects / n, win.halfarea / n, win.halfareamax);
 			}
 			if (frames > 0 && win.vksubmits > 0)
 			{

@@ -67,6 +67,14 @@ public:
 
 	VulkanFramebuffer* GetOutput(VkPPRenderPassSetup* passSetup, const PPOutput& output, WhichDepthStencil stencilTest, int& framebufferWidth, int& framebufferHeight);
 
+#ifdef __SWITCH__
+	// half-resolution effects layer: its depth buffer is drawn from the
+	// scene's, which must then be sampled (rd_vk_halfeffects)
+	bool NXFxSupported() const { return mNXFxSupported; }
+	VkTextureImage *GetNXFxDepth(int width, int height);
+	VkTextureImage NXFxDepth;
+#endif
+
 private:
 	void CreatePipelineDepthStencil(int width, int height);
 	void CreatePipeline(int width, int height);
@@ -83,6 +91,8 @@ private:
 	int mHeight = 0;
 	int mSceneFmt = -1;		// Switch: rd_vk_scenefmt / rd_vk_zcull the buffers were made with
 	bool mZcull = false;
+	bool mHalfFx = false;
+	bool mNXFxSupported = false;
 	int mSceneWidth = 0;
 	int mSceneHeight = 0;
 	VkSampleCountFlagBits mSamples = VK_SAMPLE_COUNT_1_BIT;

@@ -287,6 +287,13 @@ public:
 	// End of the level precache: upload the textures this game used before
 	// (Switch Vulkan keeps a list per IWAD + mods)
 	virtual void PrecacheUsedTextures() {}
+	// Half-resolution layer for translucent effect sprites (Switch Vulkan):
+	// smoke, fire and sparks drawn at a quarter of the pixels and blended over
+	// the scene before the weapon. Begin returns false when the effects must
+	// be drawn in the scene as usual.
+	virtual bool NXHalfEffectsAvailable() { return false; }
+	virtual bool NXBeginHalfEffects(FRenderState &state) { return false; }
+	virtual void NXEndHalfEffects(FRenderState &state) {}
 	virtual void SetSaveBuffers(bool yes) {}
 	virtual void ImageTransitionScene(bool unknown) {}
 	virtual void CopyScreenToBuffer(int width, int height, uint8_t* buffer)	{ memset(buffer, 0, width* height); }

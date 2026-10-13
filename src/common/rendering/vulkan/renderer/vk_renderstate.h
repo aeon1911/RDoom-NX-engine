@@ -67,6 +67,10 @@ public:
 
 	void BeginFrame();
 	void SetRenderTarget(VkTextureImage *image, VulkanImageView *depthStencilView, int width, int height, VkFormat Format, VkSampleCountFlagBits samples);
+	// Switch: draws go to the half-resolution effects layer (blend keeps the
+	// scene's transmittance in alpha, see VkRenderPassSetup::CreatePipeline)
+	void NXSetFxLayer(bool on) { mNXFxLayer = on; mNXFxDrawn = false; mNeedApply = true; }
+	bool NXFxDrawn() const { return mNXFxDrawn; }
 	void Bind(int bindingpoint, uint32_t offset);
 	void EndRenderPass();
 	void EndFrame();
@@ -102,6 +106,8 @@ protected:
 	float mViewportDepthMin = 0.0f, mViewportDepthMax = 1.0f;
 	bool mScissorChanged = true;
 	bool mViewportChanged = true;
+	bool mNXFxLayer = false;
+	bool mNXFxDrawn = false;
 	int mEmuBiasSign = 0;	// Switch: depth bias emulated through the viewport depth range (-1 closer, +1 farther)
 
 	bool mDepthTest = false;
