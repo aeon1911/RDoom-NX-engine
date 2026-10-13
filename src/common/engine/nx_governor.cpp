@@ -141,9 +141,13 @@ void NXGovernor_Frame(double frame_ms, double waits_ms, bool inlevel)
 	// the top level for whole sessions although its frames were on time; the
 	// limit is the GPU there, and going back up a level too early just costs
 	// one late frame and a longer wait next time)
+	// A frame a little over the target (vsync swings frames between 16 and
+	// 18 ms at 60 fps) neither counts nor starts the count over: requiring
+	// 60-300 frames in a row under 17.2 ms kept the console at the top level
+	// for whole maps that ran at 60 fps (2026-10-13 test).
 	double work = frame_ms - waits_ms;
 	if (frame_ms <= target * 1.03 && work <= target * 0.80) good++;
-	else good = 0;
+	else if (frame_ms > target * 1.20 || work > target * 0.80) good = 0;
 
 	if (good >= lowerDelay && nxGovLevel > 0 && hold == 0)
 	{

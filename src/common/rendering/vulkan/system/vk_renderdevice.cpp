@@ -347,6 +347,64 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	mDynFramesSinceRise++;
 	if (mDynCeilingFrames > 0 && --mDynCeilingFrames == 0)
 		mDynCeiling = 1.0f;
+
+	// GPU timestamps (two frames old, averaged). The frame time alone kept the
+	// view at 60% for whole maps on the console (2026-10-13 test): with vsync
+	// a frame swings between 16 and 18 ms, so 45 frames in a row under 17.3 ms
+	// never came and any 18.2 ms frame dropped the scale again, while the GPU
+	// needed ~10 of the 16.7 ms. The timestamps include the gaps between a
+	// frame's submits (they overstate the load), which only makes rises later.
+	double gpuFrame, gpuScene;
+	if (mCommands->TakeGpuFrameTime(gpuFrame, gpuScene) && gpuFrame > 0.5)
+	{
+		if (mDynGpuSamples == 0)
+		{
+			mDynGpuFrame = gpuFrame;
+			mDynGpuScene = gpuScene;
+		}
+		mDynGpuFrame += (gpuFrame - mDynGpuFrame) * 0.1;
+		mDynGpuScene += (gpuScene - mDynGpuScene) * 0.1;
+		mDynGpuSamples = min(mDynGpuSamples + 1, 1000);
+	}
+	if (mDynGpuSamples >= 30)
+	{
+		// the 3D view grows with its pixel count; the rest of the frame does not
+		auto predict = [&](float scale) { return mDynGpuFrame + mDynGpuScene * ((scale * scale) / (mDynScale * mDynScale) - 1.0); };
+		if (frameMs > budget + 1.5 && waitMs > 2.5 && mDynGpuFrame > budget * 0.9)
+		{
+			if (mDynFramesSinceRise < 120)
+			{
+				mDynCeiling = mDynScale - 0.05f;
+				mDynCeilingFrames = 1200;
+			}
+			float s = mDynScale * (float)sqrt(budget * 0.85 / mDynGpuFrame);
+			s = max(s, mDynScale * 0.8f);
+			mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
+			mDynCalmFrames = 0;
+			mDynGpuSamples = 10;	// the average restarts at the new scale (20 more frames)
+		}
+		else if (mDynScale < 1.0f && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
+		{
+			if (++mDynCalmFrames >= 45)
+			{
+				mDynCalmFrames = 0;
+				const float next = min(1.0f, mDynScale + 0.1f);
+				if (next <= mDynCeiling + 0.001f && predict(next) < budget * 0.85)
+					mDynScale = next;
+				else if (mDynScale + 0.05f <= mDynCeiling + 0.001f)
+					mDynScale += 0.05f;
+				else
+					return;
+				mDynFramesSinceRise = 0;
+				mDynGpuSamples = 10;
+			}
+		}
+		else
+			mDynCalmFrames = 0;
+		return;
+	}
+
+	// no timestamps (Ryujinx reads 0): frame time only
 	if (frameMs > budget + 1.5 && waitMs > 2.5)
 	{
 		if (mDynFramesSinceRise < 120)
