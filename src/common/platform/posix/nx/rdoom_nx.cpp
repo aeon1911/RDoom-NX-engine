@@ -377,6 +377,10 @@ static std::vector<std::pair<std::string, std::string>> g_session;
 static std::mutex g_ioMutex;	// g_session, g_sessionDirty, g_fileQueue
 static bool g_sessionDirty = false;
 static std::vector<std::pair<std::string, std::vector<uint8_t>>> g_fileQueue;
+// session report lines for rdoom.log, written by the background writer: the
+// log line (timestamp from the time service, formatting) cost the game thread
+// 30-40 ms every time, e.g. every 600 frames (Switch Lite, 2026-10-13)
+static std::vector<std::string> g_sessionLog;
 static Thread g_flushThread;
 static volatile bool g_flushRun = false;
 void NXPerf_FlushFile();
@@ -504,6 +508,7 @@ static void FlushOnce()
 	std::string session;
 	bool writeSession = false;
 	decltype(g_fileQueue) files;
+	std::vector<std::string> logLines;
 	{
 		std::lock_guard<std::mutex> lock(g_ioMutex);
 		if (g_sessionDirty)
@@ -514,7 +519,10 @@ static void FlushOnce()
 			writeSession = true;
 		}
 		files.swap(g_fileQueue);
+		logLines.swap(g_sessionLog);
 	}
+	for (auto &line : logLines)
+		RLOG_I("session", "%s", line.c_str());
 	if (writeSession)
 	{
 		FILE *f = fopen(RDOOM_SD_ROOT "/logs/engine-session.txt", "w");
@@ -613,10 +621,14 @@ void RDoom_SessionSet(const char *key, const char *value)
 		if (!found)
 			g_session.push_back({ key, value });
 		g_sessionDirty = true;
+		if (g_flushRun && g_sessionLog.size() < 256)
+			g_sessionLog.push_back(std::string(key) + ": " + value);
 	}
 	if (!g_flushRun)
+	{
 		FlushOnce();
-	RLOG_I("session", "%s: %s", key, value);
+		RLOG_I("session", "%s: %s", key, value);
+	}
 }
 
 // Called by ZVulkan the first time the GPU is reported lost: leaves a marker

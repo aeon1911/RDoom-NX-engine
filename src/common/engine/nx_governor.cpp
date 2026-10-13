@@ -136,9 +136,13 @@ void NXGovernor_Frame(double frame_ms, double waits_ms, bool inlevel)
 		}
 	}
 
-	// plenty of time to spare (the frame was on time and less than ~2/3 of it was actual work)
+	// time to spare: the frame was on time and less than 80% of it was actual
+	// work (2/3 kept Brutal Doom - ~500 actors, 10-12 ms of CPU per frame - at
+	// the top level for whole sessions although its frames were on time; the
+	// limit is the GPU there, and going back up a level too early just costs
+	// one late frame and a longer wait next time)
 	double work = frame_ms - waits_ms;
-	if (frame_ms <= target * 1.03 && work <= target * 0.62) good++;
+	if (frame_ms <= target * 1.03 && work <= target * 0.80) good++;
 	else good = 0;
 
 	if (good >= lowerDelay && nxGovLevel > 0 && hold == 0)
