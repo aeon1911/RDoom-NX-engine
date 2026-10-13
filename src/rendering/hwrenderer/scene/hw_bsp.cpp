@@ -568,8 +568,15 @@ void HWDrawInfo::AddSpecialPortalLines(subsector_t * sub, sector_t * sector, lin
 // further away than this aren't drawn. Monsters, projectiles, players,
 // pickups and anything that can be shot are always drawn. 0 = off.
 CVAR(Float, nx_effect_cull, 0.f, 0)
-// ...and fading effects (smoke, sparks) below this opacity aren't drawn either
+// ...and fading effects (smoke, sparks) below this opacity aren't drawn either.
+// Switch: Brutal Doom's smoke spends much of its life almost invisible while
+// every puff still costs its whole screen area in blending; below 4% it can't
+// be seen anyway.
+#ifdef __SWITCH__
+CVAR(Float, nx_effect_minalpha, 0.04f, 0)
+#else
 CVAR(Float, nx_effect_minalpha, 0.f, 0)
+#endif
 
 static inline bool NXCullEffect(AActor *thing, const DVector3 &viewpos)
 {

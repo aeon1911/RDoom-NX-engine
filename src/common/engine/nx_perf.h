@@ -23,7 +23,9 @@ struct NXPerfCounters
 	double player_ms = 0;	// P_PlayerThink: movement and weapon actions (part of tic_ms, not of think_ms)
 	double spawn_ms = 0;	// spawning actors, outermost calls only (inside think_ms/player_ms)
 	int spawns = 0;
-	double begin_ms = 0;	// screen->BeginFrame: waits for frame N-2, cache saves, sprite uploads (part of display_ms)
+	double begin_ms = 0;
+	double begin_wait_ms = 0, begin_save_ms = 0, begin_buffers_ms = 0, begin_sprites_ms = 0;	// parts of begin_ms (Vulkan)
+	double upload_max_ms = 0;	// slowest single texture upload this frame	// screen->BeginFrame: waits for frame N-2, cache saves, sprite uploads (part of display_ms)
 	double sndcall_ms = 0;	// whole SoundEngine::StartSound calls (lookup, async load queueing, start)
 	int sndcalls = 0;
 	double sndstart_ms = 0;	// starting sounds in the sound system (mostly part of tic_ms)

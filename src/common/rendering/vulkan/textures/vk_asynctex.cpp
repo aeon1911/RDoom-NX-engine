@@ -342,6 +342,8 @@ namespace
 	{
 		const double start = NXPerf_NowMS();
 		const double budget = rd_vk_async_upload_ms;
+		// prefetches only after a frame that made it in time, with half the budget
+		const bool prefetches = NXPerf_LastFrameMS() < 1000.0 / 60.0 + 1.5;
 		int count = 0;
 		while (count < 24 && NXPerf_NowMS() - start < budget)
 		{
@@ -351,6 +353,8 @@ namespace
 			FTextureBuffer tb;
 			{
 				std::lock_guard<std::mutex> lock(jobMutex);
+				if (readyNow.empty() && (!prefetches || NXPerf_NowMS() - start >= budget * 0.5))
+					break;
 				auto &q = !readyNow.empty() ? readyNow : readyLater;
 				if (q.empty())
 					break;

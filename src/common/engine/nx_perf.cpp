@@ -42,6 +42,7 @@ static int linesWritten = 0;
 static FILE *perfFile = nullptr;
 static double sumFrame = 0, maxFrame = 0;
 static int frames = 0;
+static int missed1 = 0, missed2 = 0;	// frames over one / over two vsync intervals
 static double lastSummary = 0;
 static uint64_t lastMisses = 0, lastBytes = 0;
 void (*NXPerf_SummaryHook)(FILE *f) = nullptr;
@@ -209,6 +210,8 @@ void NXPerf_EndFrame()
 		frames++;
 		sumFrame += frame;
 		if (frame > maxFrame) maxFrame = frame;
+		if (frame > 1000.0 / 60.0 + 1.5) missed1++;
+		if (frame > 2000.0 / 60.0 + 1.5) missed2++;
 		bool slow = frame >= nx_perfthreshold;
 		if (slow || nx_perflog >= 2)
 		{
@@ -227,12 +230,12 @@ void NXPerf_EndFrame()
 					RDoom_BufferFile(perfFile);
 #endif
 					WriteSettings(perfFile);
-					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab | player(ms) spawn n/ms skipped | startsound n/ms | begin(ms) pending(ms)\n");
+					fprintf(perfFile, "# time(s) frame(ms) | tics tic(ms) think(ms) | display(ms): scene bsp hud update gpuwait swap | items transl | shaders n/ms | textures n/ms/kpix | sounds n/ms | sndupdate(ms) sndstart n/ms | io misses/KB | async tex up/wait/budget/pre snd | draws | lights used/all up/same | stab | player(ms) spawn n/ms skipped | startsound n/ms | begin(ms) pending(ms) = wait/save/buffers/sprites, slowest upload\n");
 				}
 			}
 			if (perfFile)
 			{
-				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d | %d | %d/%d %d/%d | %d | %.1f %d/%.1f %d | %d/%.1f | %.1f %.1f\n",
+				fprintf(perfFile, "%8.2f %7.1f | %d %7.1f %6.1f | %7.1f: %5.1f %5.1f %5.1f %5.1f %5.1f %4.1f | %d %d | %d/%.1f | %d/%.1f/%lld | %d/%.1f | %.1f %d/%.1f | %llu/%llu | %d/%d/%d/%d %d | %d | %d/%d %d/%d | %d | %.1f %d/%.1f %d | %d/%.1f | %.1f %.1f = %.1f/%.1f/%.1f/%.1f %.1f\n",
 					(now - startTime) / 1000.0, frame, nxperf.tics, nxperf.tic_ms, nxperf.think_ms, nxperf.display_ms,
 					nxperf.scene_ms, nxperf.bsp_ms, nxperf.hud_ms, nxperf.update_ms, nxperf.gpuwait_ms, nxperf.swap_ms, nxperf.drawitems, nxperf.transitems,
 					nxperf.shaders, nxperf.shader_ms, nxperf.textures, nxperf.tex_ms, (long long)(nxperf.texpixels / 1000),
@@ -240,14 +243,15 @@ void NXPerf_EndFrame()
 					(unsigned long long)dmiss, (unsigned long long)(dbytes >> 10),
 					nxperf.tex_async, nxperf.tex_wait, nxperf.tex_budget, nxperf.tex_preupload, nxperf.snd_async,
 					nxperf.draws, nxperf.dynlights, nxperf.dynlightsall, nxperf.lightuploads, nxperf.lightskips, nxGovLevel,
-					nxperf.player_ms, nxperf.spawns, nxperf.spawn_ms, nxperf.spriteskips, nxperf.sndcalls, nxperf.sndcall_ms, nxperf.begin_ms, nxperf.vkpending_ms);
+					nxperf.player_ms, nxperf.spawns, nxperf.spawn_ms, nxperf.spriteskips, nxperf.sndcalls, nxperf.sndcall_ms, nxperf.begin_ms, nxperf.vkpending_ms,
+					nxperf.begin_wait_ms, nxperf.begin_save_ms, nxperf.begin_buffers_ms, nxperf.begin_sprites_ms, nxperf.upload_max_ms);
 				linesWritten++;
 			}
 		}
 		if (perfFile && now - lastSummary > 10000)
 		{
 			lastSummary = now;
-			fprintf(perfFile, "# summary: %d frames, avg %.1f ms (%.1f fps), worst %.1f ms\n", frames, frames ? sumFrame / frames : 0, frames && sumFrame > 0 ? 1000.0 * frames / sumFrame : 0, maxFrame);
+			fprintf(perfFile, "# summary: %d frames, avg %.1f ms (%.1f fps), worst %.1f ms | late frames: %d over 18 ms, %d over 35 ms\n", frames, frames ? sumFrame / frames : 0, frames && sumFrame > 0 ? 1000.0 * frames / sumFrame : 0, maxFrame, missed1, missed2);
 			if (frames > 0)
 			{
 				double n = frames;
@@ -285,6 +289,7 @@ void NXPerf_EndFrame()
 			fflush(perfFile);
 #endif
 			frames = 0;
+			missed1 = missed2 = 0;
 			sumFrame = maxFrame = 0;
 			linesWritten++;
 		}

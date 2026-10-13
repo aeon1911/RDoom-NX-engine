@@ -599,11 +599,17 @@ TArray<uint8_t> VulkanRenderDevice::GetScreenshotBuffer(int &pitch, ESSType &col
 
 void VulkanRenderDevice::BeginFrame()
 {
+	// perf.log "begin" breakdown: wait / cache save / buffers / sprites
+	double t = NXPerf_NowMS(), t2;
+	auto lap = [&](double &acc) { t2 = NXPerf_NowMS(); acc += t2 - t; t = t2; };
+
 	// the frame's region of the per-frame buffers is rewritten from the start
 	// below; only the frame that used the same region (two frames ago) must be done
 	mCommands->WaitForFrameSlot();
 	mFrameBegun = true;
+	lap(nxperf.begin_wait_ms);
 	mRenderPassManager->SaveCacheWhenIdle();
+	lap(nxperf.begin_save_ms);
 #ifdef __SWITCH__
 	UpdateDynamicResolution();
 #endif
@@ -615,7 +621,9 @@ void VulkanRenderDevice::BeginFrame()
 	mSaveBuffers->BeginFrame(SAVEPICWIDTH, SAVEPICHEIGHT, SAVEPICWIDTH, SAVEPICHEIGHT);
 	mRenderState->BeginFrame();
 	mDescriptorSetManager->BeginFrame();
+	lap(nxperf.begin_buffers_ms);
 	VkAsyncTex_NewFrame();
+	lap(nxperf.begin_sprites_ms);
 }
 
 void VulkanRenderDevice::InitLightmap(int LMTextureSize, int LMTextureCount, TArray<uint16_t>& LMTextureData)

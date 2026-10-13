@@ -166,6 +166,17 @@ void VkHardwareTexture::CreateTexture(int w, int h, int pixelsize, VkFormat form
 	int totalSize = w * h * pixelsize;
 	NXPERF_SCOPE(tex_ms, &nxperf.textures);	// perf.log "textures n/ms/kpix"
 	nxperf.texpixels += (int64_t)w * h;
+	struct SlowUpload
+	{
+		int w, h; double start = NXPerf_NowMS();
+		~SlowUpload()
+		{
+			const double ms = NXPerf_NowMS() - start;
+			nxperf.upload_max_ms = max(nxperf.upload_max_ms, ms);
+			if (ms >= 10.0)
+				NXPerf_Note("slow texture upload %.1f ms: %dx%d", ms, w, h);
+		}
+	} slowUpload{ w, h };
 
 	mImage.Image = ImageBuilder()
 		.Format(format)
