@@ -163,6 +163,7 @@ private:
 	bool mNXFxProbePending[2] = {};
 	int mNXFxDepthState = 0;	// 0 checking, 1 verified, -1 broken
 	int mNXFxZeroChecks = 0;
+	bool mNXFxShadersChecked = false;
 #endif
 	std::unique_ptr<VkBufferManager> mBufferManager;
 	std::unique_ptr<VkSamplerManager> mSamplerManager;

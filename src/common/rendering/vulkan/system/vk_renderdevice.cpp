@@ -36,6 +36,7 @@
 #include "hw_clock.h"
 #include "nx_perf.h"
 #include "i_time.h"
+#include "filesystem.h"
 #include "hw_lightbuffer.h"
 #include "hw_skydome.h"
 #include "hwrenderer/data/hw_viewpointbuffer.h"
@@ -724,6 +725,23 @@ CVAR(Int, rd_halfeffects_debug, 0, 0)
 
 bool VulkanRenderDevice::NXHalfEffectsAvailable()
 {
+	// its shaders come with this build's uzdoom.pk3: an SD card with only the
+	// new RDoom.nro copied over must not end in a fatal error at map start
+	if (mNXFxDepthState == 0 && !mNXFxShadersChecked)
+	{
+		mNXFxShadersChecked = true;
+		for (const char *lump : { "shaders/pp/nxdepth.fp", "shaders/pp/upscale.fp" })
+		{
+			if (fileSystem.CheckNumForFullName(lump) < 0)
+			{
+				mNXFxDepthState = -1;
+				FString n;
+				n.Format("off (%s missing: uzdoom.pk3 older than RDoom.nro, copy the whole package)", lump);
+				RDoom_SessionSet("vulkan_half_effects", n.GetChars());
+				break;
+			}
+		}
+	}
 	return rd_vk_halfeffects && mNXFxDepthState >= 0 && mScreenBuffers && GetBuffers() == mScreenBuffers.get() && mScreenBuffers->NXFxSupported();
 }
 
