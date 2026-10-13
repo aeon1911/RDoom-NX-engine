@@ -563,8 +563,14 @@ static void StartFlushThread()
 {
 	if (g_flushRun)
 		return;
-	// lowest priority on the default core: it sleeps in SD card calls
-	if (R_SUCCEEDED(threadCreate(&g_flushThread, FlushThreadMain, nullptr, nullptr, 0x10000, 0x3F, -2)))
+	// Core 2 with the game's priority. It used to have the lowest priority on
+	// the game's core: preempted while holding g_ioMutex (or a log lock) for a
+	// few microseconds, it then waited behind every other thread on that core
+	// while the game thread waited for the lock - 30-150 ms stalls on every
+	// session report line and warm list save (Switch Lite, 2026-10-13). It
+	// sleeps in SD card calls nearly all the time, so it takes no CPU from the
+	// sprite decoding worker that shares core 2.
+	if (R_SUCCEEDED(threadCreate(&g_flushThread, FlushThreadMain, nullptr, nullptr, 0x10000, 0x2C, 2)))
 	{
 		g_flushRun = true;
 		if (R_FAILED(threadStart(&g_flushThread)))

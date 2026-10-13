@@ -153,13 +153,29 @@ FString VkRenderPassManager::WarmFilename(const char *kind, const char *ext)
 	return path;
 }
 
+FString VkRenderPassManager::GlobalWarmFilename()
+{
+	const std::string id = "global";
+	auto it = mWarmPaths.find(id);
+	if (it != mWarmPaths.end())
+		return it->second;
+	FString path = M_GetCachePath(true);
+	path += "/rdoom-pipelines-all.bin";
+	mWarmPaths[id] = path;
+	return path;
+}
+
 void VkRenderPassManager::LoadWarmList()
 {
 	if (mWarmLoaded)
 		return;
 	mWarmLoaded = true;
 	FileReader fr;
-	if (!fr.OpenFile(WarmFilename().GetChars()))
+	// One pipeline list for every game (a pipeline depends on vertex format,
+	// blend and depth state, hardly on the mod): a new mod combination used to
+	// create its pipelines in the middle of play, 50-145 ms each on the Switch.
+	// The per-game list of older builds is the fallback for the first start.
+	if (!fr.OpenFile(GlobalWarmFilename().GetChars()) && !fr.OpenFile(WarmFilename().GetChars()))
 		return;
 	uint32_t header[3] = {};	// magic, entry size, count
 	if (fr.Read(header, sizeof(header)) != (FileReader::Size)sizeof(header) || header[0] != 0x4c504452 || header[1] != sizeof(WarmEntry) || header[2] > 400)
@@ -354,7 +370,7 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 		uint32_t header[3] = { 0x4c504452, (uint32_t)sizeof(WarmEntry), (uint32_t)mWarm.size() };
 		memcpy(out.data(), header, sizeof(header));
 		memcpy(out.data() + 12, mWarm.data(), mWarm.size() * sizeof(WarmEntry));
-		RDoom_WriteFileAsync(WarmFilename().GetChars(), out.data(), out.size());
+		RDoom_WriteFileAsync(GlobalWarmFilename().GetChars(), out.data(), out.size());
 	}
 #endif
 }

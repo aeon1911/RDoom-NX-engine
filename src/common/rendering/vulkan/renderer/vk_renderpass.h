@@ -202,6 +202,7 @@ private:
 	std::vector<WarmEntry> mWarm;
 	bool mWarmLoaded = false, mWarmDirty = false, mWarming = false;
 	FString WarmFilename(const char *kind = "pipelines", const char *ext = "bin");
+	FString GlobalWarmFilename();
 	std::map<std::string, FString> mWarmPaths;	// computed once: the loaded files don't change
 	std::mutex mCacheMutex;
 	void LoadWarmList();
