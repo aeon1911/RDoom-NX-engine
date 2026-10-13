@@ -135,6 +135,9 @@ private:
 	// dynamic resolution of the 3D view (rd_dynres)
 	float mDynScale = 1.0f;
 	int mDynCalmFrames = 0;
+	float mDynCeiling = 1.0f;		// a scale that just failed is not tried again for a while
+	int mDynCeilingFrames = 0;
+	int mDynFramesSinceRise = 1000;
 	double mDynRestAtFull = 3.5;	// GPU ms outside the 3D view at full scale (running average)
 	bool mSceneScaled = false;
 	IntRect mSceneFull, mSceneSmall;

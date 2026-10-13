@@ -266,6 +266,10 @@ public:
 	}
 
 	bool TrimBorders(uint16_t* rect);
+	// TrimBorders on pixels already decoded: w x h BGRA, rows 'pitch' pixels apart
+	static bool TrimBuffer(const uint8_t* buffer, int w, int h, int pitch, uint16_t* rect);
+	// Switch port: the untranslated hardware texture if it was created already (never creates one)
+	IHardwareTexture* FindHardwareTexture(int scaleflags) { return (scaleflags & (CTF_Upscale | CTF_Indexed)) ? nullptr : SystemTextures.GetHardwareTexture(0, scaleflags); }
 	int GetAreas(FloatRect** pAreas) const;
 
 	// Returns the whole texture, stored in column-major order

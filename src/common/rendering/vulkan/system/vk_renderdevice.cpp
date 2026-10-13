@@ -311,29 +311,51 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		mDynCalmFrames = 0;
 		return;
 	}
-	// The GPU timestamps of a frame include the gaps between its submits (the
-	// scene goes out early, the rest at the end), so they overstate the GPU
-	// load. What matters is simpler: the previous frame missed vsync and this
-	// frame had to wait for the GPU (frame N-2) before it could start.
+	// Drop: the previous frame missed vsync and this one had to wait for the
+	// GPU (frame N-2) before it could start. (The GPU timestamps include the
+	// gaps between a frame's submits and overstate the load.)
+	// Rise: 45 frames without a missed vsync. The wait for frame N-2 is no
+	// sign of GPU load here: with vsync it also contains the display queue
+	// (1-2 ms per frame at 60% scale and 10 ms of GPU on the Switch Lite,
+	// which kept the scale at 60% for whole sessions). A scale that misses
+	// vsync right after a rise is not tried again for 20 seconds.
 	const double frameMs = NXPerf_LastFrameMS();
 	const double waitMs = nxperf.vkpending_ms;	// this frame's wait at BeginFrame
 	const double budget = 1000.0 / 60.0;
+	mDynFramesSinceRise++;
+	if (mDynCeilingFrames > 0 && --mDynCeilingFrames == 0)
+		mDynCeiling = 1.0f;
 	if (frameMs > budget + 1.5 && waitMs > 2.5)
 	{
+		if (mDynFramesSinceRise < 120)
+		{
+			mDynCeiling = mDynScale - 0.05f;
+			mDynCeilingFrames = 1200;
+		}
 		float s = mDynScale * (float)sqrt(budget / frameMs);
 		s = max(s, mDynScale * 0.8f);	// at most 20% per step
 		mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
 		mDynCalmFrames = 0;
 	}
-	else if (mDynScale < 1.0f && frameMs < budget + 0.6 && waitMs < 1.5)
+	else if (frameMs < budget + 0.6)
 	{
-		if (++mDynCalmFrames >= 45)
+		if (mDynScale < 1.0f && ++mDynCalmFrames >= 45)
 		{
-			mDynScale = min(1.0f, mDynScale + 0.1f);
 			mDynCalmFrames = 0;
+			const float next = min(1.0f, mDynScale + 0.1f);
+			if (next <= mDynCeiling + 0.001f)
+			{
+				mDynScale = next;
+				mDynFramesSinceRise = 0;
+			}
+			else if (mDynScale + 0.05f <= mDynCeiling + 0.001f)
+			{
+				mDynScale += 0.05f;
+				mDynFramesSinceRise = 0;
+			}
 		}
 	}
-	else if (waitMs >= 1.5)
+	else
 		mDynCalmFrames = 0;
 }
 

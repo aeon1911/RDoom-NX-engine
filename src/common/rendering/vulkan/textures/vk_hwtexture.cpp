@@ -73,6 +73,8 @@ void VkHardwareTexture::Reset()
 	}
 }
 
+void NXSpriteTrimFromBuffer(FTexture *tex, const FTextureBuffer &tb);
+
 VkTextureImage *VkHardwareTexture::GetImage(FTexture *tex, int translation, int flags)
 {
 	if (!mImage.Image)
@@ -122,6 +124,8 @@ void VkHardwareTexture::CreateImage(FTexture *tex, int translation, int flags)
 	{
 		FTextureBuffer texbuffer = tex->CreateTexBuffer(translation, flags | CTF_ProcessData);
 		bool indexed = flags & CTF_Indexed;
+		if (translation == 0 && !indexed)
+			NXSpriteTrimFromBuffer(tex, texbuffer);	// a sprite's border trim from this decode (hw_nxprefetch.cpp)
 		CreateTexture(texbuffer.mWidth, texbuffer.mHeight,indexed? 1 : 4, indexed? VK_FORMAT_R8_UNORM : VK_FORMAT_B8G8R8A8_UNORM, texbuffer.mBuffer, !indexed);
 	}
 	else

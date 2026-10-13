@@ -1360,7 +1360,10 @@ void D_Display ()
 	R_UpdateSky(I_GetTimeFrac());
 	// Switch: frames drawn inside a running level (the GL driver thread starts only there)
 	nx_levelframes = (gamestate == GS_LEVEL && !wipestart) ? nx_levelframes + 1 : 0;
-	screen->BeginFrame();
+	{
+		NXPERF_SCOPE(begin_ms, nullptr);
+		screen->BeginFrame();
+	}
 	twod->ClearClipRect();
 	if ((gamestate == GS_LEVEL || gamestate == GS_TITLELEVEL) && gametic != 0)
 	{
@@ -2407,6 +2410,44 @@ static void SetMapxxFlag()
 // Initialize
 //
 //==========================================================================
+//
+// RDoom (Switch) changes some defaults between builds. Saved configs keep the
+// old values of archived cvars, so each change is applied once per config:
+// rd_defaults_rev remembers which ones were. Command line +set still wins.
+//
+//==========================================================================
+
+#ifdef __SWITCH__
+CVAR(Int, rd_defaults_rev, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+EXTERN_CVAR(Int, nx_workers)
+EXTERN_CVAR(Bool, gl_precache)
+EXTERN_CVAR(Float, rd_vk_async_upload_ms)
+#endif
+
+static void RDoom_UpdateDefaults(bool gameSection)
+{
+#ifdef __SWITCH__
+	static int rev = -1;	// as loaded from the global section
+	if (rev < 0)
+		rev = rd_defaults_rev;
+	if (rev < 1)
+	{
+		// 1: background sprite decoding (2 workers, larger upload budget);
+		// level textures uploaded behind the loading screen instead of the
+		// first time a door opens on them
+		if (!gameSection)
+		{
+			nx_workers = 2;
+			rd_vk_async_upload_ms = 3.f;
+		}
+		else
+			gl_precache = true;	// per game section
+	}
+	rd_defaults_rev = 1;
+#endif
+}
+
+//==========================================================================
 
 static void D_DoomInit()
 {
@@ -2425,6 +2466,7 @@ static void D_DoomInit()
 
 	if (!batchrun) Printf ("M_LoadDefaults: Load system defaults.\n");
 	M_LoadDefaults ();			// load before initing other systems
+	RDoom_UpdateDefaults(false);
 }
 
 //==========================================================================
@@ -3627,6 +3669,7 @@ static int D_InitGame(const FIWADInfo* iwad_info, std::vector<FileSys::ResourceN
 
 	FBaseCVar::DisableCallbacks();
 	GameConfig->DoGameSetup (gameinfo.ConfigName.GetChars());
+	RDoom_UpdateDefaults(true);
 
 	AddAutoloadFiles(iwad_info->Autoname.GetChars(), allwads);
 

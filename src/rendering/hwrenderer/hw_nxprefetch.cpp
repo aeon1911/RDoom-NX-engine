@@ -27,6 +27,8 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <vector>
+#include <string.h>
 EXTERN_CVAR(Int, nx_perflog)
 
 // priority: 0 = prefetch, 1 = likely needed soon, 2 = needed now
@@ -51,15 +53,21 @@ static TMap<DPSprite *, FState *> NXLookahead;
 
 //==========================================================================
 //
-// Sprite border trimming in the background
+// Sprites that are not ready yet
 //
-// The first time a sprite is drawn, the renderer decodes its whole picture
-// just to find the empty border around it (FTexture::TrimBorders), on the
-// game thread, and then decodes it a second time for the upload. An
-// explosion in Brutal Doom brings dozens of new pictures at once: on the
-// Switch that was 100-150 ms of PNG decoding inside one frame. The trim is
-// now computed by a worker (nx_jobs) and the sprite is left out until its
-// numbers are ready, usually one or two frames later.
+// The first time a sprite picture is drawn, the renderer used to decode it
+// twice on the game/render thread: once just to find the empty border
+// around it (FTexture::TrimBorders) and once for the upload. An explosion
+// in Brutal Doom brings dozens of new pictures at once: on the Switch that
+// was 100-150 ms of PNG decoding inside one frame.
+//
+// Now the render thread only checks whether a picture is ready (border
+// trim known, layers on the GPU - nothing is created there). If it is not,
+// the game thread asks for it at the start of the next frame and the
+// worker decodes it once; that decode also delivers the trim
+// (NXSpriteTrimFromBuffer). Meanwhile an actor keeps showing the last
+// picture it had (an animation holds its previous frame instead of
+// flickering); an actor that has nothing to show yet is left out.
 //
 //==========================================================================
 
@@ -71,6 +79,13 @@ CVAR(Bool, rd_async_sprites, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 extern thread_local bool nx_asyncworker;
 
+// set by a backend that decodes sprite pictures in the background (vk_asynctex.cpp)
+bool NXSpriteDecoderActive = false;
+// the picture's layers are on the GPU: never creates anything, callable from any thread
+bool (*NXSpriteLoadedHook)(FGameTexture *gtex, int scaleflags) = nullptr;
+// game thread: decode and upload this picture as soon as possible
+void (*NXSpriteRequestHook)(FGameTexture *gtex, int scaleflags) = nullptr;
+
 namespace
 {
 	struct TrimJob
@@ -79,75 +94,193 @@ namespace
 		uint16_t trim[4] = {};
 		bool result = false;
 	};
-	std::mutex trimMutex;
-	std::unordered_map<FGameTexture *, std::shared_ptr<TrimJob>> trimJobs;
+	std::mutex trimMutex;	// trimJobs, wanted
+	// finished results stay: the textures live as long as the session
+	std::unordered_map<FTexture *, std::shared_ptr<TrimJob>> trimJobs;
 	// first frames of a level: everything synchronous, so the first view is complete
-	int trimWarmup = 3;
+	std::atomic<int> trimWarmup{ 3 };
+	// pictures the render thread found missing (picture, scale flags)
+	std::vector<std::pair<FGameTexture *, int>> wanted;
+
+	// last picture each actor showed, with its sprite (so a new actor that got the
+	// address of a destroyed one cannot show the old actor's picture)
+	struct Held { FGameTexture *tex; int sprite; };
+	std::mutex holdMutex;
+	std::unordered_map<AActor *, Held> held;
 
 	void RunTrim(const std::shared_ptr<TrimJob> &job, FTexture *tex)
 	{
 		if (job->started.exchange(true)) return;
+		uint16_t trim[4];
 		nx_asyncworker = true;
-		job->result = tex->TrimBorders(job->trim);
+		const bool result = tex->TrimBorders(trim);
 		nx_asyncworker = false;
-		job->done = true;
+		std::lock_guard<std::mutex> lock(trimMutex);
+		if (!job->done)
+		{
+			memcpy(job->trim, trim, sizeof(trim));
+			job->result = result;
+			job->done = true;
+		}
 	}
 
 	// call with trimMutex held
-	void QueueTrim(FGameTexture *gtex, int priority)
+	void QueueTrim(FTexture *tex, int priority)
 	{
-		auto it = trimJobs.find(gtex);
-		if (it != trimJobs.end())
+		auto &job = trimJobs[tex];
+		if (job)
 		{
-			auto job = it->second;
-			if (priority >= NXJOB_NOW && !job->started && !job->bumped.exchange(true))
+			if (priority >= NXJOB_NOW && !job->started && !job->done && !job->bumped.exchange(true))
 			{
-				FTexture *tex = gtex->GetTexture();
-				NXJobs_Push([job, tex]() { RunTrim(job, tex); }, NXJOB_NOW);
+				auto j = job;
+				NXJobs_Push([j, tex]() { RunTrim(j, tex); }, NXJOB_NOW);
 			}
 			return;
 		}
-		auto job = std::make_shared<TrimJob>();
-		trimJobs.emplace(gtex, job);
-		FTexture *tex = gtex->GetTexture();
-		NXJobs_Push([job, tex]() { RunTrim(job, tex); }, priority);
+		job = std::make_shared<TrimJob>();
+		auto j = job;
+		NXJobs_Push([j, tex]() { RunTrim(j, tex); }, priority);
 	}
 
-	bool TrimAsync(FGameTexture *gtex)
+	// call with trimMutex held
+	void Want(FGameTexture *gtex, int scaleflags)
+	{
+		if (wanted.size() < 512)
+			wanted.emplace_back(gtex, scaleflags);
+	}
+
+	bool TrimNeeded(FGameTexture *gtex)
 	{
 		// only the expanded sprite frame (index 1) needs the decoded picture
 		return rd_async_sprites && gtex->GetTexture() != nullptr && !gtex->GetTexture()->isHardwareCanvas() && gtex->ShouldExpandSprite() && NXJobs_Enabled();
 	}
+
+	bool Loaded(FGameTexture *gtex, int scaleflags)
+	{
+		return NXSpriteLoadedHook == nullptr || NXSpriteLoadedHook(gtex, scaleflags);
+	}
 }
 
-// false: the sprite's positioning is still being computed, leave it out of this frame
+// A decoded picture (any thread): its border trim, without decoding it again.
+// 'tb' is the picture as uploaded, w x h or w+2 x h+2 (CTF_Expand).
+void NXSpriteTrimFromBuffer(FTexture *tex, const FTextureBuffer &tb)
+{
+	if (tex == nullptr || tb.mBuffer == nullptr)
+		return;
+	const int w = tex->GetWidth(), h = tex->GetHeight();
+	int border;
+	if (tb.mWidth == w && tb.mHeight == h)
+		border = 0;
+	else if (tb.mWidth == w + 2 && tb.mHeight == h + 2)
+		border = 1;
+	else
+		return;	// replaced or scaled picture: TrimBorders decides
+	uint16_t trim[4];
+	const bool result = FTexture::TrimBuffer(tb.mBuffer + (border * tb.mWidth + border) * 4, w, h, tb.mWidth, trim);
+	std::lock_guard<std::mutex> lock(trimMutex);
+	auto &job = trimJobs[tex];
+	if (!job)
+		job = std::make_shared<TrimJob>();
+	if (!job->done)
+	{
+		memcpy(job->trim, trim, sizeof(trim));
+		job->result = result;
+		job->started = true;
+		job->done = true;
+	}
+}
+
+// false: the sprite's positioning is still being computed (asked for)
 bool NXSpriteDataReady(FGameTexture *gtex)
 {
-	if (gtex == nullptr || gtex->HasSpriteData() || trimWarmup > 0 || !TrimAsync(gtex))
+	if (gtex == nullptr || gtex->HasSpriteData() || trimWarmup > 0 || !TrimNeeded(gtex))
 		return true;
+	FTexture *tex = gtex->GetTexture();
 	std::shared_ptr<TrimJob> job;
 	{
 		std::lock_guard<std::mutex> lock(trimMutex);
-		auto it = trimJobs.find(gtex);
-		if (it == trimJobs.end() || !it->second->done)
-		{
-			QueueTrim(gtex, NXJOB_NOW);
-			nxperf.spriteskips++;
-			return false;
-		}
-		job = it->second;
-		trimJobs.erase(it);
+		auto it = trimJobs.find(tex);
+		if (it != trimJobs.end() && it->second->done)
+			job = it->second;
+		else if (!NXSpriteDecoderActive)
+			QueueTrim(tex, NXJOB_NOW);
+		else
+			Want(gtex, CTF_Expand);	// the decode for the upload brings the trim
 	}
+	if (!job)
+		return false;
 	gtex->SetupSpriteData(job->trim, job->result);
 	return true;
 }
 
+// Render thread: the picture to draw for this actor now, or nullptr to leave it out.
+FGameTexture *NXSpriteChoose(AActor *thing, FGameTexture *tex, int scaleflags, bool translated)
+{
+	bool ready = NXSpriteDataReady(tex);
+	if (ready && !translated && trimWarmup == 0 && rd_async_sprites && !Loaded(tex, scaleflags))
+	{
+		ready = false;
+		std::lock_guard<std::mutex> lock(trimMutex);
+		Want(tex, scaleflags);
+	}
+	if (thing == nullptr || !rd_async_sprites)
+		return ready ? tex : nullptr;
+	std::lock_guard<std::mutex> lock(holdMutex);
+	if (ready)
+	{
+		if (held.size() > 8192)
+			held.clear();
+		held[thing] = Held{ tex, thing->sprite };
+		return tex;
+	}
+	auto it = held.find(thing);
+	if (it != held.end() && it->second.sprite == thing->sprite && it->second.tex->HasSpriteData() && (translated || Loaded(it->second.tex, scaleflags)))
+		return it->second.tex;
+	nxperf.spriteskips++;
+	return nullptr;
+}
+
 static void PrefetchTrim(FGameTexture *gtex, int priority)
 {
-	if (gtex == nullptr || !gtex->isValid() || gtex->HasSpriteData() || !TrimAsync(gtex))
+	// with a background decoder the trim comes with the picture
+	if (NXSpriteDecoderActive || gtex == nullptr || !gtex->isValid() || gtex->HasSpriteData() || !TrimNeeded(gtex))
 		return;
 	std::lock_guard<std::mutex> lock(trimMutex);
-	QueueTrim(gtex, priority);
+	QueueTrim(gtex->GetTexture(), priority);
+}
+
+// Game thread, once per frame: asks the backend for the pictures the render
+// thread found missing.
+void NXSprite_ServiceWanted()
+{
+	decltype(wanted) list;
+	{
+		std::lock_guard<std::mutex> lock(trimMutex);
+		list.swap(wanted);
+	}
+	for (size_t i = 0; i < list.size(); i++)
+	{
+		FGameTexture *gtex = list[i].first;
+		const int flags = list[i].second;
+		bool dup = false;
+		for (size_t j = 0; j < i && !dup; j++)
+			dup = list[j] == list[i];
+		if (dup || gtex == nullptr || !gtex->isValid())
+			continue;
+		if (!Loaded(gtex, flags))
+		{
+			if (NXSpriteRequestHook)
+				NXSpriteRequestHook(gtex, flags);
+		}
+		else if (!gtex->HasSpriteData() && TrimNeeded(gtex))
+		{
+			// on the GPU already (loaded synchronously): only the trim is missing
+			std::lock_guard<std::mutex> lock(trimMutex);
+			auto it = trimJobs.find(gtex->GetTexture());
+			if (it == trimJobs.end() || !it->second->done)
+				QueueTrim(gtex->GetTexture(), NXJOB_NOW);
+		}
+	}
 }
 
 void NXPrefetch_NewLevel()
@@ -155,12 +288,20 @@ void NXPrefetch_NewLevel()
 	NXPrefetched.Clear();
 	NXHeldFrames.Clear();
 	NXLookahead.Clear();
-	// textures may go away with the old level: nothing may still be trimming
 	NXPendingHigh.clear();
 	NXPendingLow.clear();
+	// nothing may still be working on textures while the level changes
 	NXJobs_WaitAll();
-	std::lock_guard<std::mutex> lock(trimMutex);
-	trimJobs.clear();
+	{
+		std::lock_guard<std::mutex> lock(trimMutex);
+		for (auto it = trimJobs.begin(); it != trimJobs.end();)
+			it = it->second->done ? std::next(it) : trimJobs.erase(it);
+		wanted.clear();
+	}
+	{
+		std::lock_guard<std::mutex> lock(holdMutex);
+		held.clear();
+	}
 	trimWarmup = 3;
 }
 
@@ -265,8 +406,12 @@ struct NXPrefetchList
 	}
 };
 
+// prefetch the pictures of every actor class when it first appears (off: only what is drawn)
+CVAR(Bool, rd_sprite_prefetch, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
 void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent)
 {
+	if (!rd_sprite_prefetch) return;
 	if ((NXPrefetchSpriteHook == nullptr && !rd_async_sprites) || cls == nullptr) return;
 	if (NXPrefetched.CheckKey(cls)) return;
 	NXPrefetched.Insert(cls, true);
@@ -317,6 +462,7 @@ void NXPrefetch_Player(player_t *player)
 	// called once per rendered frame
 	if (trimWarmup > 0) trimWarmup--;
 	else NXPrefetch_Pump();
+	NXSprite_ServiceWanted();
 	if ((NXPrefetchSpriteHook == nullptr && !rd_async_sprites) || player == nullptr) return;
 	if (player->ReadyWeapon) NXPrefetch_Weapon(player->ReadyWeapon->GetClass());
 	if (player->PendingWeapon && player->PendingWeapon != WP_NOCHANGE)

@@ -398,6 +398,107 @@ static void WriteWhole(const std::string &path, const void *data, size_t size)
 		remove(tmp.c_str());
 }
 
+// Log files shared by the game thread and this writer. The writer used to
+// fflush() them, which holds the stdio lock (and, for rdoom.log, the log
+// mutex) during the SD write; any log line the game wrote meanwhile - the
+// session report every 600 frames, a pickup message, a perf.log line - then
+// waited 90-150 ms for the card (seen on the Switch Lite, 2026-10-13). Now a
+// flush of these FILEs only appends to memory, and the writer writes that to
+// the file descriptor without holding anything the game thread takes.
+struct BufferedFile
+{
+	FILE *fp = nullptr;
+	int fd = -1;
+	std::mutex m;	// pending
+	std::string pending;
+	decltype(((FILE *)nullptr)->_close) close = nullptr;
+};
+static BufferedFile g_buffered[6];
+static std::mutex g_drainMutex;	// writes to the descriptors, registration
+
+static BufferedFile *FindBuffered(void *cookie)
+{
+	for (auto &b : g_buffered)
+		if (b.fp == cookie)
+			return &b;
+	return nullptr;
+}
+
+static void WriteAll(int fd, const std::string &data)
+{
+	size_t done = 0;
+	while (done < data.size())
+	{
+		ssize_t n = write(fd, data.data() + done, data.size() - done);
+		if (n <= 0)
+			break;
+		done += (size_t)n;
+	}
+}
+
+static _ssize_t BufferedWrite(struct _reent *, void *cookie, const char *buf, size_t n)
+{
+	BufferedFile *b = FindBuffered(cookie);
+	if (!b)
+		return write(fileno((FILE *)cookie), buf, n);
+	std::lock_guard<std::mutex> lock(b->m);
+	b->pending.append(buf, n);
+	return (_ssize_t)n;
+}
+
+static void DrainBuffered()
+{
+	std::lock_guard<std::mutex> drain(g_drainMutex);
+	for (auto &b : g_buffered)
+	{
+		if (!b.fp)
+			continue;
+		std::string data;
+		{
+			std::lock_guard<std::mutex> lock(b.m);
+			data.swap(b.pending);
+		}
+		if (!data.empty())
+			WriteAll(b.fd, data);
+	}
+}
+
+static int BufferedClose(struct _reent *r, void *cookie)
+{
+	std::lock_guard<std::mutex> drain(g_drainMutex);
+	BufferedFile *b = FindBuffered(cookie);
+	if (!b)
+		return close(fileno((FILE *)cookie));
+	{
+		std::lock_guard<std::mutex> lock(b->m);
+		WriteAll(b->fd, b->pending);
+		b->pending.clear();
+	}
+	auto origClose = b->close;
+	b->fp = nullptr;
+	return origClose ? origClose(r, cookie) : close(b->fd);
+}
+
+void RDoom_BufferFile(FILE *f)
+{
+	if (!f || !g_flushRun)
+		return;
+	std::lock_guard<std::mutex> drain(g_drainMutex);
+	if (FindBuffered(f))
+		return;
+	for (auto &b : g_buffered)
+		if (!b.fp)
+		{
+			fflush(f);
+			b.fd = fileno(f);
+			b.close = f->_close;
+			b.fp = f;
+			f->_write = BufferedWrite;
+			f->_close = BufferedClose;
+			return;
+		}
+}
+
 static void FlushOnce()
 {
 	std::string session;
@@ -429,6 +530,7 @@ static void FlushOnce()
 	fflush(stdout);
 	fflush(stderr);
 	NXPerf_FlushFile();
+	DrainBuffered();
 }
 
 static void FlushThreadMain(void *)
@@ -464,6 +566,13 @@ static void StartFlushThread()
 		}
 	}
 	LogSetFlushEachLine(!g_flushRun);
+	if (g_flushRun)
+	{
+		RDoom_BufferFile(LogFileHandle());
+		RDoom_BufferFile(stdout);
+		RDoom_BufferFile(stderr);
+		atexit(FlushOnce);	// what is still in memory at a normal exit
+	}
 }
 
 void RDoom_FlushLogsNow()

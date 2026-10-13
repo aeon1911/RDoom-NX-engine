@@ -1,4 +1,5 @@
 #pragma once
+#include <stdio.h>
 #include <stddef.h>
 // RDoom start-up flow on Horizon (rdoom_nx.cpp).
 
@@ -22,6 +23,9 @@ void RDoom_SessionLog(const char *category, const char *message);
 // (exit, fatal error); WriteFileAsync queues a whole file (atomic replace).
 void RDoom_FlushLogsNow();
 void RDoom_WriteFileAsync(const char *path, const void *data, size_t size);
+// Log files the game thread writes: from now on their stdio buffer flushes go
+// to memory and only the background writer writes them to the SD card.
+void RDoom_BufferFile(FILE *f);
 // Appends one line to logs/boot.log with an unbuffered write (start-up steps).
 void RDoom_Crumb(const char *what);
 

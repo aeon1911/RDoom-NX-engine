@@ -21,9 +21,11 @@
 #ifdef __SWITCH__
 void I_NXSetupWorkerThread(int core);
 void I_NXWorkerYield();
-// One worker on core 2 by default: core 0 runs the game, core 1 is left to
-// the render worker, audio and music threads (a 2nd worker would go there).
-CVAR(Int, nx_workers, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// Two workers: core 2, and core 1 next to the render worker, audio and music
+// threads (the workers have the lowest priority, so they only use time those
+// leave idle). Sprite pictures are decoded here (vk_asynctex.cpp): when a door
+// opens on a new area, one worker took about a second for all of them.
+CVAR(Int, nx_workers, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 #else
 CVAR(Int, nx_workers, 2, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 #endif

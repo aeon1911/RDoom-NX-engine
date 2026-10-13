@@ -38,12 +38,17 @@
 
 CVAR(Bool, rd_vk_async_textures, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 // game thread time per frame for copying finished pictures to the GPU
-CVAR(Float, rd_vk_async_upload_ms, 2.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Float, rd_vk_async_upload_ms, 3.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 extern thread_local bool nx_asyncworker;
 extern void (*NXPrefetchSpriteHook)(FGameTexture *gtex, int priority);
 extern int (*NXSpriteReadyHook)(FGameTexture *gtex);
 extern bool (*NXSpriteDrawableHook)(FGameTexture *gtex, int translation, int scaleflags);
+extern bool (*NXSpriteLoadedHook)(FGameTexture *gtex, int scaleflags);
+extern void (*NXSpriteRequestHook)(FGameTexture *gtex, int scaleflags);
+extern bool NXSpriteDecoderActive;
+void NXSpriteTrimFromBuffer(FTexture *tex, const FTextureBuffer &tb);
+void NXSprite_ServiceWanted();
 
 namespace
 {
@@ -69,13 +74,14 @@ namespace
 		// prefetched sprite: uploaded at the start of a frame, before it is needed
 		FGameTexture *gtex = nullptr;
 		int scaleFlags = 0;
-		bool queued = false;	// in readyQueue
+		bool queued = false;	// in readyNow or readyLater
 	};
 
 	VulkanRenderDevice *device = nullptr;
-	std::mutex jobMutex;	// jobs, readyQueue, Job::gtex/queued
+	std::mutex jobMutex;	// jobs, ready queues, Job::gtex/queued/priority
 	std::unordered_map<Key, std::shared_ptr<Job>, KeyHash> jobs;
-	std::deque<Key> readyQueue;
+	// decoded, waiting for the upload: what is on screen first, then prefetches
+	std::deque<Key> readyNow, readyLater;
 	std::atomic<int> generation{ 0 };
 	std::atomic<int64_t> pendingBytes{ 0 };	// decoded, waiting for the upload
 	const int64_t PrefetchCap = 96ll << 20;	// prefetches stop above this
@@ -116,6 +122,7 @@ namespace
 		nx_asyncworker = true;
 		FTextureBuffer tb = tex->CreateTexBuffer(0, flags);
 		nx_asyncworker = false;
+		NXSpriteTrimFromBuffer(tex, tb);	// the sprite's border trim comes with the same decode
 		job->bytes = int64_t(tb.mWidth) * tb.mHeight * 4;
 		pendingBytes += job->bytes;
 		job->result = std::move(tb);
@@ -124,7 +131,7 @@ namespace
 		if (job->gtex != nullptr && !job->queued)
 		{
 			job->queued = true;
-			readyQueue.push_back(Key{ tex, flags });
+			(job->priority >= NXJOB_NOW ? readyNow : readyLater).push_back(Key{ tex, flags });
 		}
 	}
 
@@ -248,13 +255,13 @@ namespace
 		return Layers(gtex, CTF_Expand, true);
 	}
 
-	void PrefetchSprite(FGameTexture *gtex, int priority)
+	void Prefetch(FGameTexture *gtex, int priority, int scaleFlags)
 	{
 		if (gtex == nullptr || !gtex->isValid() || !Active())
 			return;
 		if (priority < NXJOB_NOW && pendingBytes.load() > PrefetchCap)
 			return;
-		FMaterial *mat = FMaterial::ValidateTexture(gtex, CTF_Expand, true);
+		FMaterial *mat = FMaterial::ValidateTexture(gtex, scaleFlags, true);
 		if (mat == nullptr)
 			return;
 		MaterialLayerInfo *layer;
@@ -270,19 +277,73 @@ namespace
 			const Key key{ layer->layerTexture, flags };
 			auto it = jobs.find(key);
 			if (it == jobs.end())
-				Start(key, priority, gtex, CTF_Expand);
-			else if (priority >= NXJOB_NOW && !it->second->done)
-				Bump(key, it->second);
+				Start(key, priority, gtex, scaleFlags);
+			else if (priority >= NXJOB_NOW)
+			{
+				auto &job = it->second;
+				job->lastRequest = frame;
+				if (job->gtex == nullptr)
+				{
+					job->gtex = gtex;
+					job->scaleFlags = scaleFlags;
+				}
+				if (!job->done)
+					Bump(key, job);
+				else if (job->priority < NXJOB_NOW && job->queued)
+				{
+					// decoded as a prefetch and still waiting: upload it first
+					job->priority = NXJOB_NOW;
+					readyNow.push_back(key);
+				}
+				else if (!job->queued && job->result.mBuffer != nullptr)
+				{
+					job->queued = true;
+					job->priority = NXJOB_NOW;
+					readyNow.push_back(key);
+				}
+			}
 		}
 	}
 
-	// finished prefetches go to the GPU at the start of a frame, before anybody needs them
+	void PrefetchSprite(FGameTexture *gtex, int priority)
+	{
+		Prefetch(gtex, priority, CTF_Expand);
+	}
+
+	// the render thread missed this picture: decode and upload it first
+	void RequestSprite(FGameTexture *gtex, int scaleFlags)
+	{
+		Prefetch(gtex, NXJOB_NOW, scaleFlags);
+	}
+
+	// any thread: every layer that goes through this path is on the GPU (creates nothing)
+	bool SpriteLoaded(FGameTexture *gtex, int scaleFlags)
+	{
+		if (!Active() || gtex == nullptr)
+			return true;
+		FMaterial *mat = FMaterial::ValidateTexture(gtex, scaleFlags, false);
+		if (mat == nullptr)
+			return false;
+		for (auto &layer : mat->GetLayerArray())
+		{
+			if (layer.layerTexture == nullptr || !Eligible(layer.layerTexture, layer.scaleFlags | CTF_ProcessData))
+				continue;
+			auto hw = static_cast<VkHardwareTexture *>(layer.layerTexture->FindHardwareTexture(layer.scaleFlags));
+			if (hw == nullptr || !hw->HasImage())
+				return false;
+		}
+		return true;
+	}
+
+	// Decoded pictures go to the GPU at the start of a frame: what the render
+	// thread is waiting for first, then prefetches. This is the only place
+	// world sprites are uploaded (the render thread holds them out until then).
 	void PreUpload()
 	{
 		const double start = NXPerf_NowMS();
-		const double budget = rd_vk_async_upload_ms * 0.75;
+		const double budget = rd_vk_async_upload_ms;
 		int count = 0;
-		while (count < 12 && NXPerf_NowMS() - start < budget)
+		while (count < 24 && NXPerf_NowMS() - start < budget)
 		{
 			Key key;
 			FGameTexture *gtex;
@@ -290,18 +351,19 @@ namespace
 			FTextureBuffer tb;
 			{
 				std::lock_guard<std::mutex> lock(jobMutex);
-				if (readyQueue.empty())
+				auto &q = !readyNow.empty() ? readyNow : readyLater;
+				if (q.empty())
 					break;
-				key = readyQueue.front();
-				readyQueue.pop_front();
+				key = q.front();
+				q.pop_front();
 				auto it = jobs.find(key);
 				if (it == jobs.end())
 					continue;
 				auto &job = it->second;
-				job->queued = false;
-				if (!job->done || job->result.mBuffer == nullptr || job->gtex == nullptr)
+				if (!job->queued || !job->done || job->result.mBuffer == nullptr || job->gtex == nullptr)
 					continue;
-				if (job->priority == NXJOB_LOW)
+				job->queued = false;
+				if (job->priority < NXJOB_NOW)
 				{
 					// level prefetch: the rest stays decoded until it is needed
 					if (preuploaded > PreuploadCap)
@@ -339,6 +401,8 @@ void VkAsyncTex_Install(VulkanRenderDevice *fb)
 	NXPrefetchSpriteHook = PrefetchSprite;
 	NXSpriteReadyHook = SpriteReady;
 	NXSpriteDrawableHook = SpriteDrawable;
+	NXSpriteLoadedHook = SpriteLoaded;
+	NXSpriteRequestHook = RequestSprite;
 }
 
 void VkAsyncTex_NewFrame()
@@ -348,10 +412,14 @@ void VkAsyncTex_NewFrame()
 	frame++;
 	uploadsThisFrame = 0;
 	uploadMsThisFrame = 0;
+	NXSpriteDecoderActive = Active();
 	if (warmup > 0)
 		warmup--;
-	else if (Active())
+	else if (NXSpriteDecoderActive)
+	{
+		NXSprite_ServiceWanted();
 		PreUpload();
+	}
 	// drop pictures nobody asked for in about 15 seconds
 	if ((frame & 63) == 0)
 	{
@@ -376,7 +444,8 @@ void VkAsyncTex_Flush()
 	NXJobs_WaitAll();
 	std::lock_guard<std::mutex> lock(jobMutex);
 	jobs.clear();
-	readyQueue.clear();
+	readyNow.clear();
+	readyLater.clear();
 	preuploaded = 0;
 	pendingBytes = 0;
 }
@@ -388,6 +457,9 @@ void VkAsyncTex_Shutdown()
 	NXPrefetchSpriteHook = nullptr;
 	NXSpriteReadyHook = nullptr;
 	NXSpriteDrawableHook = nullptr;
+	NXSpriteLoadedHook = nullptr;
+	NXSpriteRequestHook = nullptr;
+	NXSpriteDecoderActive = false;
 	VkAsyncTex_Flush();
 	device = nullptr;
 }

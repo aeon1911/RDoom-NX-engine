@@ -87,6 +87,7 @@ static void PrecacheSprite(FGameTexture *tex, SpriteHits &hits)
 //==========================================================================
 
 void GLES_AsyncTexFlush();
+extern bool NXSpriteDecoderActive;
 void VkAsyncTex_Flush();
 void NXPrefetch_NewLevel();
 void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent);
@@ -292,7 +293,7 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 				}
 
 				// Only register untranslated sprite images. Translated ones are very unlikely to require data that can be reused so they can just be created on demand.
-				if (spritehitlist[i] != nullptr && (*spritehitlist[i]).CheckKey(0))
+				if (!NXSpriteDecoderActive && spritehitlist[i] != nullptr && (*spritehitlist[i]).CheckKey(0))
 				{
 					FImageSource::RegisterForPrecache(tex->GetImage(), V_IsTrueColor());
 				}
@@ -306,7 +307,10 @@ void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitl
 			if (gtex != nullptr)
 			{
 				PrecacheTexture(gtex, texhitlist[i]);
-				if (spritehitlist[i] != nullptr && (*spritehitlist[i]).CountUsed() > 0)
+				// Switch: with background sprite decoding, all the frames of every
+				// actor class (thousands in Brutal Doom) are not decoded here; the
+				// warm list and the class prefetch below bring what is used
+				if (!NXSpriteDecoderActive && spritehitlist[i] != nullptr && (*spritehitlist[i]).CountUsed() > 0)
 				{
 					PrecacheSprite(gtex, *spritehitlist[i]);
 				}

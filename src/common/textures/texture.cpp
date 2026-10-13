@@ -452,7 +452,6 @@ bool FTexture::TrimBorders(uint16_t* rect)
 	auto texbuffer = CreateTexBuffer(0);
 	int w = texbuffer.mWidth;
 	int h = texbuffer.mHeight;
-	auto Buffer = texbuffer.mBuffer;
 
 	if (texbuffer.mBuffer == nullptr)
 	{
@@ -463,9 +462,14 @@ bool FTexture::TrimBorders(uint16_t* rect)
 		// external Hires replacements cannot be trimmed.
 		return false;
 	}
+	return TrimBuffer(texbuffer.mBuffer, w, h, w, rect);
+}
 
-	int size = w * h;
-	if (size == 1)
+bool FTexture::TrimBuffer(const uint8_t* Buffer, int w, int h, int pitch, uint16_t* rect)
+{
+	auto alpha = [=](int x, int y) { return Buffer[(x + y * pitch) * 4 + 3]; };
+
+	if (w * h == 1)
 	{
 		// nothing to be done here.
 		rect[0] = 0;
@@ -474,13 +478,13 @@ bool FTexture::TrimBorders(uint16_t* rect)
 		rect[3] = 1;
 		return true;
 	}
-	int first, last;
 
-	for (first = 0; first < size; first++)
-	{
-		if (Buffer[first * 4 + 3] != 0) break;
-	}
-	if (first >= size)
+	// first and last row with a visible pixel
+	int first = -1, last = -1;
+	for (int y = 0; y < h && first < 0; y++)
+		for (int x = 0; x < w; x++)
+			if (alpha(x, y) != 0) { first = y; break; }
+	if (first < 0)
 	{
 		// completely empty
 		rect[0] = 0;
@@ -489,26 +493,21 @@ bool FTexture::TrimBorders(uint16_t* rect)
 		rect[3] = 1;
 		return true;
 	}
+	for (int y = h - 1; y >= first && last < 0; y--)
+		for (int x = 0; x < w; x++)
+			if (alpha(x, y) != 0) { last = y; break; }
 
-	for (last = size - 1; last >= first; last--)
-	{
-		if (Buffer[last * 4 + 3] != 0) break;
-	}
-
-	rect[1] = first / w;
-	rect[3] = 1 + last / w - rect[1];
+	rect[1] = first;
+	rect[3] = 1 + last - first;
 
 	rect[0] = 0;
 	rect[2] = w;
 
-	unsigned char* bufferoff = Buffer + (rect[1] * w * 4);
-	h = rect[3];
-
 	for (int x = 0; x < w; x++)
 	{
-		for (int y = 0; y < h; y++)
+		for (int y = first; y <= last; y++)
 		{
-			if (bufferoff[(x + y * w) * 4 + 3] != 0) goto outl;
+			if (alpha(x, y) != 0) goto outl;
 		}
 		rect[0]++;
 	}
@@ -517,9 +516,9 @@ outl:
 
 	for (int x = w - 1; rect[2] > 1; x--)
 	{
-		for (int y = 0; y < h; y++)
+		for (int y = first; y <= last; y++)
 		{
-			if (bufferoff[(x + y * w) * 4 + 3] != 0)
+			if (alpha(x, y) != 0)
 			{
 				return true;
 			}
