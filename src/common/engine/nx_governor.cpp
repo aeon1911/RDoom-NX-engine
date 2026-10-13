@@ -43,18 +43,26 @@ static double hist[8];
 static int nhist = 0, histpos = 0;
 static int hold = 0;			// frames before the next change
 static int good = 0;			// frames in a row with plenty of time to spare
-static int lowerDelay = 105;	// good frames needed before detail comes back (grows when it had to go down again right away)
+// good frames needed before detail comes back (grows when it had to go down
+// again right away). 1 s: a fight with an occasional late frame every ~85
+// frames never reached 105 and kept the top level for minutes.
+static const int baseLowerDelay = 60;
+static int lowerDelay = baseLowerDelay;
 static int sinceRaise = 0;
 static int sinceLower = 1000;
 
-static const int	lightMaxT[NXGOV_MAXLEVEL + 1] = { 0, 24, 16, 10, 6, 4, 2 };
-static const double	lightDistT[NXGOV_MAXLEVEL + 1] = { 0, 3000, 2400, 1800, 1400, 1000, 700 };
+// Order of the trims: what costs the GPU most for the least visible change
+// first (faint/hidden smoke), the lights only at the top levels (on the
+// Switch Lite the stabilizer sat at level 5-6 for whole fights, lights cut
+// to 2-3, while the bottleneck was the smoke's blending).
+static const int	lightMaxT[NXGOV_MAXLEVEL + 1] = { 0, 0, 0, 24, 16, 10, 6 };
+static const double	lightDistT[NXGOV_MAXLEVEL + 1] = { 0, 0, 0, 2400, 1800, 1400, 1000 };
 static const double	cullT[NXGOV_MAXLEVEL + 1] = { 0, 4000, 3000, 2200, 1600, 1200, 900 };
 static const double	minAlphaT[NXGOV_MAXLEVEL + 1] = { 0, 0.03, 0.05, 0.07, 0.09, 0.12, 0.15 };
-static const double	shadowT[NXGOV_MAXLEVEL + 1] = { 1, 1, 0.75, 0.5, 0.35, 0.2, 0 };
+static const double	shadowT[NXGOV_MAXLEVEL + 1] = { 1, 1, 1, 0.75, 0.5, 0.35, 0.2 };
 // translucent effects (smoke) on screen, in screen areas: the GPU blends every
 // layer, and a fight in Brutal Doom stacks dozens of them
-static const double	effectAreaT[NXGOV_MAXLEVEL + 1] = { 0, 20, 14, 10, 7, 5, 3 };
+static const double	effectAreaT[NXGOV_MAXLEVEL + 1] = { 0, 10, 7, 5, 4, 3, 2 };
 
 // "0 = no limit" values: the stricter of both
 template<class T> static T Tighter(T preset, T table)
@@ -103,7 +111,7 @@ void NXGovernor_Frame(double frame_ms, double waits_ms, bool inlevel)
 	if (hold > 0) hold--;
 	sinceRaise++;
 	sinceLower++;
-	if (sinceRaise > 900) lowerDelay = 105;	// calm for ~30 s: back to the normal pace
+	if (sinceRaise > 900) lowerDelay = baseLowerDelay;	// calm for ~15 s: back to the normal pace
 
 	if (nhist >= 6 && hold == 0 && nxGovLevel < NXGOV_MAXLEVEL)
 	{
@@ -119,7 +127,7 @@ void NXGovernor_Frame(double frame_ms, double waits_ms, bool inlevel)
 		if (median > target * 1.10 || late >= 2)
 		{
 			// detail came back only a moment ago and it's too much again: wait longer next time
-			if (sinceLower < 60) lowerDelay = std::min(lowerDelay * 2, 600);
+			if (sinceLower < 60) lowerDelay = std::min(lowerDelay * 2, 300);
 			SetLevel(nxGovLevel + 1, late >= 2 ? "late frames" : "median", median);
 			hold = 6;	// give the change a few frames to show
 			good = 0;

@@ -53,6 +53,7 @@
 #include "quaternion.h"
 
 #include "p_visualthinker.h"
+#include "nx_perf.h"
 
 extern TArray<spritedef_t> sprites;
 extern TArray<spriteframe_t> SpriteFrames;
@@ -1718,7 +1719,10 @@ bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
 	const double viewArea = 4.0 * d * d * t * t / aspect;
 	const double area = min(1.0, w * h / viewArea);
 	if (di->nxEffectArea + area > budget)
+	{
+		nxperf.effectsculled++;
 		return true;
+	}
 	di->nxEffectArea += area;
 	return false;
 }

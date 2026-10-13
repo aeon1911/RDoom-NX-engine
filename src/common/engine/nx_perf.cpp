@@ -29,7 +29,7 @@ CVAR(Int, nx_perflog, 1, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 #else
 CVAR(Int, nx_perflog, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 #endif
-CVAR(Int, nx_perfthreshold, 90, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+CVAR(Int, nx_perfthreshold, 40, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 
 NXPerfCounters nxperf;
 
@@ -54,7 +54,7 @@ static struct
 	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending, gpuframe, gpuscene, gpupost, gpuend;
 	int gpuframes;
 	double scalesum; float scalemin;
-	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits;
+	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled;
 } win;
 
 #ifdef __SWITCH__
@@ -194,6 +194,7 @@ void NXPerf_EndFrame()
 		win.glfinish += nxperf.glfinish_ms;
 		win.glsyncs += nxperf.glsyncs;
 		win.spriteskips += nxperf.spriteskips;
+		win.effectsculled += nxperf.effectsculled;
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
 		win.frameend += nxperf.frameend_ms;
@@ -257,7 +258,8 @@ void NXPerf_EndFrame()
 				linesWritten++;
 			}
 		}
-		if (perfFile && now - lastSummary > 10000)
+		// every 5 s: tests on the console are often short sessions
+		if (perfFile && now - lastSummary > 5000)
 		{
 			lastSummary = now;
 			fprintf(perfFile, "# summary: %d frames, avg %.1f ms (%.1f fps), worst %.1f ms | late frames: %d over 18 ms, %d over 35 ms\n", frames, frames ? sumFrame / frames : 0, frames && sumFrame > 0 ? 1000.0 * frames / sumFrame : 0, maxFrame, missed1, missed2);
@@ -275,8 +277,8 @@ void NXPerf_EndFrame()
 				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | sprites waiting for their picture per frame %.1f\n",
 					win.tics ? win.tic / win.tics : 0.0, win.tics ? win.thinkers / win.tics : 0, win.drawitems / frames, win.transitems / frames,
 					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
-				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d)\n",
-					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel);
+				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d), effects left out per frame %.1f\n",
+					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n);
 			}
 			if (frames > 0 && win.vksubmits > 0)
 			{

@@ -2422,6 +2422,7 @@ CVAR(Int, rd_defaults_rev, 0, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 EXTERN_CVAR(Int, nx_workers)
 EXTERN_CVAR(Bool, gl_precache)
 EXTERN_CVAR(Float, rd_vk_async_upload_ms)
+EXTERN_CVAR(Int, nx_perfthreshold)
 #endif
 
 static void RDoom_UpdateDefaults(bool gameSection)
@@ -2443,7 +2444,9 @@ static void RDoom_UpdateDefaults(bool gameSection)
 		else
 			gl_precache = true;	// per game section
 	}
-	rd_defaults_rev = 1;
+	if (rev < 2 && !gameSection)
+		nx_perfthreshold = 40;	// 2: perf.log also shows frames of 40-90 ms (two vsyncs or more)
+	rd_defaults_rev = 2;
 #endif
 }
 
