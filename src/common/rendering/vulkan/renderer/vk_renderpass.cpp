@@ -44,6 +44,7 @@
 #include "texturemanager.h"
 #include "gamestate.h"
 #include "nx_perf.h"
+#include "nx_jobs.h"
 #include "c_cvars.h"
 
 VkRenderPassManager::VkRenderPassManager(VulkanRenderDevice* fb) : fb(fb)
@@ -131,7 +132,13 @@ void VkRenderPassManager::PipelineCreated(const VkRenderPassKey &passKey, const 
 
 FString VkRenderPassManager::WarmFilename(const char *kind, const char *ext)
 {
-	// one list per game: hash of the loaded resource files
+	// one list per game: hash of the loaded resource files. Computed once:
+	// M_GetCachePath(true) creates the directory, an SD card access that took
+	// 60-80 ms inside a frame on the Switch while the card was busy.
+	const std::string id = std::string(kind) + "." + ext;
+	auto it = mWarmPaths.find(id);
+	if (it != mWarmPaths.end())
+		return it->second;
 	uint32_t h = 2166136261u;
 	for (int i = 0; i < fileSystem.GetNumWads(); i++)
 	{
@@ -141,6 +148,7 @@ FString VkRenderPassManager::WarmFilename(const char *kind, const char *ext)
 	}
 	FString path = M_GetCachePath(true);
 	path.AppendFormat("/rdoom-%s-%08x.%s", kind, h, ext);
+	mWarmPaths[id] = path;
 	return path;
 }
 
@@ -302,16 +310,30 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	if (mUnsavedPipelines == 0 || now - mLastPipelineMs < 3000)
 		return;
 	mUnsavedPipelines = 0;
-	try
+	// Reading the cache data takes 65-85 ms on the Switch: done by a worker,
+	// with the cache mutex keeping pipeline creation off the cache meanwhile.
+	// (The device waits for every job before it goes away: VkAsyncTex_Shutdown.)
 	{
-		auto data = PipelineCache->GetCacheData();
-		RDoom_WriteFileAsync(CacheFilename.GetChars(), data.data(), data.size());
-		FString n;
-		n.Format("%u KB", (unsigned)(data.size() / 1024));
-		RDoom_SessionSet("vulkan_pipeline_cache_saved", n.GetChars());
-	}
-	catch (...)
-	{
+		VulkanPipelineCache *cache = PipelineCache.get();
+		std::mutex *mutex = &mCacheMutex;
+		std::string file = CacheFilename.GetChars();
+		NXJobs_Push([cache, mutex, file]()
+		{
+			std::vector<uint8_t> data;
+			try
+			{
+				std::lock_guard<std::mutex> lock(*mutex);
+				data = cache->GetCacheData();
+			}
+			catch (...)
+			{
+				return;
+			}
+			RDoom_WriteFileAsync(file.c_str(), data.data(), data.size());
+			FString n;
+			n.Format("%u KB", (unsigned)(data.size() / 1024));
+			RDoom_SessionSet("vulkan_pipeline_cache_saved", n.GetChars());
+		}, NXJOB_LOW);
 	}
 	if (mWarmDirty)
 	{
@@ -491,6 +513,7 @@ VulkanPipeline *VkRenderPassSetup::GetPipeline(const VkPipelineKey &key)
 
 std::unique_ptr<VulkanPipeline> VkRenderPassSetup::CreatePipeline(const VkPipelineKey &key)
 {
+	std::lock_guard<std::mutex> cacheLock(fb->GetRenderPassManager()->CacheMutex());
 	GraphicsPipelineBuilder builder;
 	builder.Cache(fb->GetRenderPassManager()->GetCache());
 
@@ -665,6 +688,7 @@ void VkPPRenderPassSetup::CreatePipelineLayout(const VkPPRenderPassKey& key)
 
 void VkPPRenderPassSetup::CreatePipeline(const VkPPRenderPassKey& key)
 {
+	std::lock_guard<std::mutex> cacheLock(fb->GetRenderPassManager()->CacheMutex());
 	GraphicsPipelineBuilder builder;
 	builder.Cache(fb->GetRenderPassManager()->GetCache());
 	builder.AddVertexShader(key.Shader->VertexShader.get());

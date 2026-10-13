@@ -115,6 +115,8 @@ enum DrawListType
 
 struct HWDrawInfo
 {
+	// Switch port: screen area covered by translucent effects in this scene (NXEffectOverBudget)
+	double nxEffectArea = 0;
 	struct wallseg
 	{
 		float x1, y1, z1, x2, y2, z2;

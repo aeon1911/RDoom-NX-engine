@@ -22,6 +22,10 @@
 
 #pragma once
 
+#include <map>
+#include <mutex>
+#include <string>
+
 #include "i_time.h"
 
 #include "zvulkan/vulkanobjects.h"
@@ -160,6 +164,8 @@ public:
 	VkPPRenderPassSetup* GetPPRenderPass(const VkPPRenderPassKey& key);
 
 	VulkanPipelineCache* GetCache() { return PipelineCache.get(); }
+	// held while a pipeline is created with the cache and while its data is read (on a worker)
+	std::mutex &CacheMutex() { return mCacheMutex; }
 
 	// Switch: the cache used to be written only by a clean exit, and closing
 	// with HOME skipped it, so every session compiled its pipelines again
@@ -196,6 +202,8 @@ private:
 	std::vector<WarmEntry> mWarm;
 	bool mWarmLoaded = false, mWarmDirty = false, mWarming = false;
 	FString WarmFilename(const char *kind = "pipelines", const char *ext = "bin");
+	std::map<std::string, FString> mWarmPaths;	// computed once: the loaded files don't change
+	std::mutex mCacheMutex;
 	void LoadWarmList();
 	struct TextureUse { FString Name; int UseType, ScaleFlags; };
 	std::vector<TextureUse> mTexList;

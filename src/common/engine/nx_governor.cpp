@@ -12,6 +12,8 @@
 //   - effects/decorations far away are not drawn (monsters, projectiles,
 //     pickups and everything that can be shot are always drawn),
 //   - almost invisible effects are not drawn,
+//   - translucent effects (smoke) get a screen area budget: they are drawn
+//     from near to far, so what goes is the smoke behind other smoke,
 //   - sprite shadows reach less far.
 // Nothing that affects the game (actors, collisions, damage, scripts) is
 // changed. When there is time to spare again, detail comes back slowly.
@@ -50,6 +52,9 @@ static const double	lightDistT[NXGOV_MAXLEVEL + 1] = { 0, 3000, 2400, 1800, 1400
 static const double	cullT[NXGOV_MAXLEVEL + 1] = { 0, 4000, 3000, 2200, 1600, 1200, 900 };
 static const double	minAlphaT[NXGOV_MAXLEVEL + 1] = { 0, 0.03, 0.05, 0.07, 0.09, 0.12, 0.15 };
 static const double	shadowT[NXGOV_MAXLEVEL + 1] = { 1, 1, 0.75, 0.5, 0.35, 0.2, 0 };
+// translucent effects (smoke) on screen, in screen areas: the GPU blends every
+// layer, and a fight in Brutal Doom stacks dozens of them
+static const double	effectAreaT[NXGOV_MAXLEVEL + 1] = { 0, 20, 14, 10, 7, 5, 3 };
 
 // "0 = no limit" values: the stricter of both
 template<class T> static T Tighter(T preset, T table)
@@ -64,6 +69,7 @@ double NXGov_LightDist(double preset) { return Tighter(preset, lightDistT[nxGovL
 double NXGov_EffectCull(double preset) { return Tighter(preset, cullT[nxGovLevel]); }
 double NXGov_MinAlpha(double preset) { return std::max(preset, minAlphaT[nxGovLevel]); }
 double NXGov_ShadowDist(double preset) { return preset * shadowT[nxGovLevel]; }
+double NXGov_EffectArea(double preset) { return Tighter(preset, effectAreaT[nxGovLevel]); }
 
 static void SetLevel(int level, const char *why, double value)
 {

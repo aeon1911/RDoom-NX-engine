@@ -16,3 +16,5 @@ double NXGov_LightDist(double preset);
 double NXGov_EffectCull(double preset);
 double NXGov_MinAlpha(double preset);
 double NXGov_ShadowDist(double preset);
+// screen area (in whole screens) translucent effects may cover per frame, 0 = no limit
+double NXGov_EffectArea(double preset);

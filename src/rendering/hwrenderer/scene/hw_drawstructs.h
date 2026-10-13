@@ -416,6 +416,7 @@ public:
 	void Process(HWDrawInfo *di, AActor* thing,sector_t * sector, area_t in_area, int thruportal = false, bool isSpriteShadow = false);
 	void ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *sector, class DVisualThinker *spr);//, int shade, int fakeside)
 	void AdjustVisualThinker(HWDrawInfo *di, DVisualThinker *spr, sector_t *sector);
+	bool NXEffectOverBudget(HWDrawInfo *di, AActor *thing);
 
 	void DrawSprite(HWDrawInfo *di, FRenderState &state, bool translucent);
 };

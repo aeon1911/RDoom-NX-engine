@@ -1486,6 +1486,8 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 		lightlist = nullptr;
 	}
 
+	if (hw_styleflags != STYLEHW_Solid && !modelframe && !isSpriteShadow && NXEffectOverBudget(di, thing))
+		return;
 	PutSprite(di, hw_styleflags != STYLEHW_Solid);
 	rendered_sprites++;
 }
@@ -1684,6 +1686,41 @@ void HWSprite::ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *s
 
 	PutSprite(di, hw_styleflags != STYLEHW_Solid);
 	rendered_sprites++;
+}
+
+//==========================================================================
+//
+// Switch port: while the frame rate stabilizer is active, translucent
+// effects (smoke, sparks, gore splats - never monsters, projectiles, pickups
+// or anything that can be shot) may cover only so much of the screen.
+// Sprites are processed in BSP order, near to far, so what is left out is
+// the smoke behind other smoke. 0 = no limit (nx_effect_area).
+//
+//==========================================================================
+
+CVAR(Float, nx_effect_area, 0.f, 0)
+
+bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
+{
+	const double budget = NXGov_EffectArea(nx_effect_area);
+	if (budget <= 0 || thing == nullptr)
+		return false;
+	if (thing->player || (thing->flags3 & MF3_ISMONSTER) || (thing->flags & (MF_MISSILE | MF_SPECIAL | MF_SHOOTABLE)))
+		return false;
+	// screen fraction of the sprite: its world size against what the view
+	// covers at its depth (horizontal FOV, screen aspect)
+	const auto &vp = di->Viewpoint;
+	const double w = sqrt(double(x2 - x1) * (x2 - x1) + double(y2 - y1) * (y2 - y1));
+	const double h = fabs(double(z1 - z2));
+	const double d = max(double(depth), 8.0);
+	const double t = vp.FieldOfView.Tan() > 0.01 ? (vp.FieldOfView / 2).Tan() : 1.0;
+	const double aspect = screen->GetHeight() > 0 ? double(screen->GetWidth()) / screen->GetHeight() : 16.0 / 9.0;
+	const double viewArea = 4.0 * d * d * t * t / aspect;
+	const double area = min(1.0, w * h / viewArea);
+	if (di->nxEffectArea + area > budget)
+		return true;
+	di->nxEffectArea += area;
+	return false;
 }
 
 // [MC] VisualThinkers are to be rendered akin to actor sprites. The reason this whole system
