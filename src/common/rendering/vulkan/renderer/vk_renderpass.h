@@ -201,6 +201,7 @@ private:
 	std::vector<TextureUse> mTexList;
 	bool mTexLoaded = false, mTexDirty = false, mTexWarming = false;
 	uint64_t mLastTexMs = 0;
+	uint64_t mLastTexSaveMs = 0;	// 0 = not saved yet this session
 	void LoadTextureList();
 
 	VulkanRenderDevice* fb = nullptr;

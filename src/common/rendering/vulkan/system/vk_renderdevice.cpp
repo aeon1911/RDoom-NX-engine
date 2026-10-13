@@ -319,9 +319,10 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	// (1-2 ms per frame at 60% scale and 10 ms of GPU on the Switch Lite,
 	// which kept the scale at 60% for whole sessions). A scale that misses
 	// vsync right after a rise is not tried again for 20 seconds.
-	const double frameMs = NXPerf_LastFrameMS();
-	const double waitMs = nxperf.vkpending_ms;	// this frame's wait at BeginFrame
 	const double budget = 1000.0 / 60.0;
+	// a frame held back by the tic rate (menu, pause) says nothing about the GPU
+	const double frameMs = NXPerf_LastTicWaitMS() > 8.0 ? budget : NXPerf_LastFrameMS();
+	const double waitMs = nxperf.vkpending_ms;	// this frame's wait at BeginFrame
 	mDynFramesSinceRise++;
 	if (mDynCeilingFrames > 0 && --mDynCeilingFrames == 0)
 		mDynCeiling = 1.0f;

@@ -66,6 +66,7 @@ void NXPerf_Note(const char *fmt, ...);
 // last completed frame, the simulation time inside it, and the average cost of one tic (0 if none ran)
 double NXPerf_LastFrameMS();
 double NXPerf_LastSimMS();
+double NXPerf_LastTicWaitMS();	// the last frame's wait for the next game tic
 double NXPerf_LastTicMS();
 // set by the game code: writes a breakdown (e.g. which actor classes cost the most) into the summary
 extern void (*NXPerf_SummaryHook)(FILE *f);

@@ -41,6 +41,7 @@ static double startTime = -1;
 static int linesWritten = 0;
 static FILE *perfFile = nullptr;
 static double sumFrame = 0, maxFrame = 0;
+static double lastTicWaitMS = 0;
 static int frames = 0;
 static int missed1 = 0, missed2 = 0;	// frames over one / over two vsync intervals
 static double lastSummary = 0;
@@ -105,6 +106,11 @@ double NXPerf_LastFrameMS()
 	return lastFrameMS;
 }
 
+double NXPerf_LastTicWaitMS()
+{
+	return lastTicWaitMS;
+}
+
 double NXPerf_LastSimMS()
 {
 	return lastSimMS;
@@ -140,6 +146,7 @@ void NXPerf_EndFrame()
 	double frame = lastFrame < 0 ? 0 : now - lastFrame;
 	lastFrame = now;
 	lastFrameMS = frame;
+	lastTicWaitMS = nxperf.wait_ms;
 	lastSimMS = nxperf.tic_ms;
 	lastTicMS = (nxperf.tics > 0) ? nxperf.tic_ms / nxperf.tics : 0;
 
@@ -152,7 +159,9 @@ void NXPerf_EndFrame()
 	{
 		extern int nx_levelframes;
 		// Vulkan waits for the display/GPU inside acquire, present and the frame-start wait
-		NXGovernor_Frame(frame, nxperf.swap_ms + nxperf.gpuwait_ms + nxperf.wait_ms + nxperf.vkacquire_ms + nxperf.vkpresent_ms + nxperf.vkpending_ms, nx_levelframes > 3);
+		// frames held back by the tic rate (menu open, paused: 35 fps) are not late frames
+		const bool ticCapped = nxperf.wait_ms > 8.0;
+		NXGovernor_Frame(frame, nxperf.swap_ms + nxperf.gpuwait_ms + nxperf.wait_ms + nxperf.vkacquire_ms + nxperf.vkpresent_ms + nxperf.vkpending_ms, nx_levelframes > 3 && !ticCapped);
 	}
 
 	if (nx_perflog > 0 && linesWritten < 3000)

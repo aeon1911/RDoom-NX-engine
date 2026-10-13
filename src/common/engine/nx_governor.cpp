@@ -24,7 +24,15 @@
 #include <algorithm>
 #include <math.h>
 
-CVAR(Int, nx_stabilizer, 0, CVAR_GLOBALCONFIG)	// target FPS, 0 = off
+// target FPS, 0 = off. On by default on the Switch: Brutal Doom's smoke made
+// half the frames of a fight late on the Switch Lite even at 60% resolution
+// (dozens of translucent layers); only purely visual detail is trimmed and
+// only while frames are late.
+#ifdef __SWITCH__
+CVAR(Int, nx_stabilizer, 60, CVAR_GLOBALCONFIG)
+#else
+CVAR(Int, nx_stabilizer, 0, CVAR_GLOBALCONFIG)
+#endif
 CVAR(Bool, nx_stabilizer_debug, false, 0)
 
 int nxGovLevel = 0;

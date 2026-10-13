@@ -276,16 +276,25 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	if (VulkanDeviceWasLost)
 		return;
 	const uint64_t now = I_msTime();
-	// The texture list goes to the card one second after the last new
-	// picture (the write runs on the background writer): sessions are often
-	// short, start, blow up the barrels, quit, and the list must survive that.
-	if (mTexDirty && now - mLastTexMs >= 1000)
+	// The texture list goes to the card one second after the first new
+	// picture of a session (sessions are often short: start, blow up the
+	// barrels, quit), then at most every 20 seconds: every save rewrites and
+	// renames the file, and the SD card can stall for a long time on that,
+	// holding up reads by any thread (a 2.4 s frame on the Switch Lite).
+	if (mTexDirty && now - mLastTexMs >= 1000 && (mLastTexSaveMs == 0 || now - mLastTexSaveMs >= 20000))
 	{
 		mTexDirty = false;
-		FString out;
+		mLastTexSaveMs = now;
+		std::string out;
+		out.reserve(mTexList.size() * 24);
+		char line[96];
 		for (auto &t : mTexList)
-			out.AppendFormat("%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
-		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.GetChars(), out.Len());
+		{
+			int n = snprintf(line, sizeof(line), "%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
+			if (n > 0)
+				out.append(line, min(n, (int)sizeof(line) - 1));
+		}
+		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.data(), out.size());
 		FString n;
 		n.Format("%d textures", (int)mTexList.size());
 		RDoom_SessionSet("vulkan_texture_list_saved", n.GetChars());

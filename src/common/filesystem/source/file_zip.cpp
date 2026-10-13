@@ -24,6 +24,7 @@
 
 #include <time.h>
 #include <mutex>
+#include <atomic>
 #include <stdexcept>
 #include <cstdint>
 #include "w_zip.h"
@@ -353,27 +354,42 @@ void FZipFile::SetEntryAddress(uint32_t entry)
 	// This file is inside a zip and has not been opened before.
 	// Position points to the start of the local file header, which we must
 	// read and skip so that we can get to the actual file data.
+	//
+	// The header is read without holding the mutex: a background thread
+	// (sprite or sound decoding) waiting for the SD card here used to block
+	// every other thread opening a new entry, the renderer included (a 2.4 s
+	// frame on the Switch while the card was busy writing). The mutex only
+	// guards the update; two threads reading the same header agree anyway.
+	decltype(Entries[entry].Position) pos;
+	{
+		std::lock_guard<std::mutex> lock(EntryAddressMutex);
+		if (!(Entries[entry].Flags & RESFF_NEEDFILESTART)) return;
+		pos = Entries[entry].Position;
+	}
 	FZipLocalFileHeader localHeader;
-	int skiplen;
-
-	// background threads (asset decoding) must not touch the shared reader
-	std::lock_guard<std::mutex> lock(EntryAddressMutex);
-	if (!(Entries[entry].Flags & RESFF_NEEDFILESTART)) return;
+	bool ok;
 	if (mainThread)
 	{
-		Reader.Seek(Entries[entry].Position, FileReader::SeekSet);
-		Reader.Read(&localHeader, sizeof(localHeader));
+		// only the main thread uses the shared reader
+		Reader.Seek(pos, FileReader::SeekSet);
+		ok = Reader.Read(&localHeader, sizeof(localHeader)) == (FileReader::Size)sizeof(localHeader);
 	}
 	else
 	{
 		FileReader fr;
-		if (!fr.OpenFile(FileName)) return;
-		fr.Seek(Entries[entry].Position, FileReader::SeekSet);
-		fr.Read(&localHeader, sizeof(localHeader));
+		ok = fr.OpenFile(FileName) && fr.Seek(pos, FileReader::SeekSet) == 0 && fr.Read(&localHeader, sizeof(localHeader)) == (FileReader::Size)sizeof(localHeader);
 	}
-	skiplen = LittleShort(localHeader.NameLength) + LittleShort(localHeader.ExtraLength);
-	Entries[entry].Position += sizeof(localHeader) + skiplen;
-	Entries[entry].Flags &= ~RESFF_NEEDFILESTART;
+	if (!ok) return;
+	const int skiplen = LittleShort(localHeader.NameLength) + LittleShort(localHeader.ExtraLength);
+	std::lock_guard<std::mutex> lock(EntryAddressMutex);
+	if (Entries[entry].Flags & RESFF_NEEDFILESTART)
+	{
+		Entries[entry].Position = pos + sizeof(localHeader) + skiplen;
+		// readers check the flag without the mutex (GetEntryReader): the new
+		// position must be visible before the flag is cleared
+		std::atomic_thread_fence(std::memory_order_release);
+		Entries[entry].Flags &= ~RESFF_NEEDFILESTART;
+	}
 }
 
 //==========================================================================

@@ -22,6 +22,7 @@
 */
 
 #include <algorithm>
+#include <atomic>
 #include <miniz.h>
 #include "resourcefile.h"
 #include "md5.hpp"
@@ -678,6 +679,9 @@ FileReader FResourceFile::GetEntryReader(uint32_t entry, int readertype, int rea
 		{
 			SetEntryAddress(entry);
 		}
+		// pairs with the release fence in FZipFile::SetEntryAddress (another
+		// thread may have just set Position and cleared the flag)
+		std::atomic_thread_fence(std::memory_order_acquire);
 		if (!(Entries[entry].Flags & RESFF_COMPRESSED))
 		{
 			auto buf = Reader.GetBuffer();
