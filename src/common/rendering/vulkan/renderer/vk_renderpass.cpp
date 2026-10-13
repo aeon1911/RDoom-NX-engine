@@ -45,6 +45,7 @@
 #include "gamestate.h"
 #include "nx_perf.h"
 #include "nx_jobs.h"
+#include <memory>
 #include "c_cvars.h"
 
 VkRenderPassManager::VkRenderPassManager(VulkanRenderDevice* fb) : fb(fb)
@@ -293,19 +294,30 @@ void VkRenderPassManager::SaveCacheWhenIdle()
 	{
 		mTexDirty = false;
 		mLastTexSaveMs = now;
-		std::string out;
-		out.reserve(mTexList.size() * 24);
-		char line[96];
+		// formatted, queued and logged by a worker: on the Switch the save
+		// still cost the game thread 95-165 ms every 20 s, done here
+		struct Entry { std::string name; int useType, scaleFlags; };
+		auto list = std::make_shared<std::vector<Entry>>();
+		list->reserve(mTexList.size());
 		for (auto &t : mTexList)
+			list->push_back({ t.Name.GetChars(), t.UseType, t.ScaleFlags });
+		std::string file = WarmFilename("textures", "txt").GetChars();
+		NXJobs_Push([list, file]()
 		{
-			int n = snprintf(line, sizeof(line), "%d %d %s\n", t.UseType, t.ScaleFlags, t.Name.GetChars());
-			if (n > 0)
-				out.append(line, min(n, (int)sizeof(line) - 1));
-		}
-		RDoom_WriteFileAsync(WarmFilename("textures", "txt").GetChars(), out.data(), out.size());
-		FString n;
-		n.Format("%d textures", (int)mTexList.size());
-		RDoom_SessionSet("vulkan_texture_list_saved", n.GetChars());
+			std::string out;
+			out.reserve(list->size() * 24);
+			char line[96];
+			for (auto &t : *list)
+			{
+				int n = snprintf(line, sizeof(line), "%d %d %s\n", t.useType, t.scaleFlags, t.name.c_str());
+				if (n > 0)
+					out.append(line, std::min(n, (int)sizeof(line) - 1));
+			}
+			RDoom_WriteFileAsync(file.c_str(), out.data(), out.size());
+			char n[32];
+			snprintf(n, sizeof(n), "%d textures", (int)list->size());
+			RDoom_SessionSet("vulkan_texture_list_saved", n);
+		}, NXJOB_LOW);
 	}
 	if (mUnsavedPipelines == 0 || now - mLastPipelineMs < 3000)
 		return;

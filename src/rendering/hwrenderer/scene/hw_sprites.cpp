@@ -40,6 +40,7 @@
 #include "hw_models.h"
 #include "hwrenderer/scene/hw_drawstructs.h"
 #include "hwrenderer/scene/hw_drawinfo.h"
+#include "hwrenderer/scene/hw_nxeffect.h"
 #include "hwrenderer/scene/hw_fakeflat.h"
 #include "hwrenderer/scene/hw_portal.h"
 #include "flatvertices.h"
@@ -1692,8 +1693,9 @@ void HWSprite::ProcessParticle(HWDrawInfo *di, particle_t *particle, sector_t *s
 //==========================================================================
 //
 // Switch port: while the frame rate stabilizer is active, translucent
-// effects (smoke, sparks, gore splats - never monsters, projectiles, pickups
-// or anything that can be shot) may cover only so much of the screen.
+// effects (smoke, sparks, gore splats - never monsters, damaging projectiles,
+// pickups or anything that can be shot; see hw_nxeffect.h) may cover only so
+// much of the screen.
 // Sprites are processed in BSP order, near to far, so what is left out is
 // the smoke behind other smoke. 0 = no limit (nx_effect_area).
 //
@@ -1706,7 +1708,7 @@ bool HWSprite::NXEffectOverBudget(HWDrawInfo *di, AActor *thing)
 	const double budget = NXGov_EffectArea(nx_effect_area);
 	if (budget <= 0 || thing == nullptr)
 		return false;
-	if (thing->player || (thing->flags3 & MF3_ISMONSTER) || (thing->flags & (MF_MISSILE | MF_SPECIAL | MF_SHOOTABLE)))
+	if (!NXIsPureEffect(thing))
 		return false;
 	// screen fraction of the sprite: its world size against what the view
 	// covers at its depth (horizontal FOV, screen aspect)

@@ -29,6 +29,7 @@
 #include "hwrenderer/scene/hw_clipper.h"
 #include "hwrenderer/scene/hw_drawstructs.h"
 #include "hwrenderer/scene/hw_drawinfo.h"
+#include "hwrenderer/scene/hw_nxeffect.h"
 #include "hwrenderer/scene/hw_portal.h"
 #include "hw_clock.h"
 #include "flatvertices.h"
@@ -584,7 +585,7 @@ static inline bool NXCullEffect(AActor *thing, const DVector3 &viewpos)
 	double cull = NXGov_EffectCull(nx_effect_cull);
 	double minalpha = NXGov_MinAlpha(nx_effect_minalpha);
 	if (cull <= 0 && minalpha <= 0) return false;
-	if (thing->player || (thing->flags3 & MF3_ISMONSTER) || (thing->flags & (MF_MISSILE | MF_SPECIAL | MF_SHOOTABLE))) return false;
+	if (!NXIsPureEffect(thing)) return false;
 	if (minalpha > 0 && !(thing->RenderStyle.Flags & (STYLEF_Alpha1 | STYLEF_TransSoulsAlpha)) && thing->Alpha < minalpha) return true;
 	return cull > 0 && (thing->Pos() - viewpos).LengthSquared() > cull * cull;
 }
