@@ -175,14 +175,47 @@ void VkRenderPassManager::LoadWarmList()
 	// blend and depth state, hardly on the mod): a new mod combination used to
 	// create its pipelines in the middle of play, 50-145 ms each on the Switch.
 	// The per-game list of older builds is the fallback for the first start.
-	if (!fr.OpenFile(GlobalWarmFilename().GetChars()) && !fr.OpenFile(WarmFilename().GetChars()))
-		return;
-	uint32_t header[3] = {};	// magic, entry size, count
-	if (fr.Read(header, sizeof(header)) != (FileReader::Size)sizeof(header) || header[0] != 0x4c504452 || header[1] != sizeof(WarmEntry) || header[2] > 400)
-		return;
-	mWarm.resize(header[2]);
-	if (fr.Read(mWarm.data(), mWarm.size() * sizeof(WarmEntry)) != (FileReader::Size)(mWarm.size() * sizeof(WarmEntry)))
-		mWarm.clear();
+	auto readList = [](FileReader &fr, std::vector<WarmEntry> &out)
+	{
+		uint32_t header[3] = {};	// magic, entry size, count
+		if (fr.Read(header, sizeof(header)) != (FileReader::Size)sizeof(header) || header[0] != 0x4c504452 || header[1] != sizeof(WarmEntry) || header[2] > 400)
+			return;
+		out.resize(header[2]);
+		if (fr.Read(out.data(), out.size() * sizeof(WarmEntry)) != (FileReader::Size)(out.size() * sizeof(WarmEntry)))
+			out.clear();
+	};
+	if (fr.OpenFile(GlobalWarmFilename().GetChars()) || fr.OpenFile(WarmFilename().GetChars()))
+		readList(fr, mWarm);
+	// The package carries a list of the pipelines the usual games need
+	// (collected in test sessions): a fresh install, or an SD card whose
+	// cache/ folder went away with an update, created 30 of them in the
+	// middle of play, 20+ ms each (console tests of 2026-10-13).
+	FileReader seedFile;
+	std::vector<WarmEntry> seed;
+	if (seedFile.OpenFile("./rdoom-pipelines-seed.bin"))
+		readList(seedFile, seed);
+	int added = 0;
+	for (auto &e : seed)
+	{
+		bool known = false;
+		for (auto &w : mWarm)
+			if (!memcmp(&w, &e, sizeof(e)))
+			{
+				known = true;
+				break;
+			}
+		if (!known && mWarm.size() < 400)
+		{
+			mWarm.push_back(e);
+			added++;
+		}
+	}
+	if (added)
+	{
+		FString n;
+		n.Format("%d from the package's list", added);
+		RDoom_SessionSet("vulkan_pipeline_seed", n.GetChars());
+	}
 }
 
 void VkRenderPassManager::WarmupPipelines()

@@ -358,13 +358,10 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	double gpuFrame, gpuScene;
 	if (mCommands->TakeGpuFrameTime(gpuFrame, gpuScene) && gpuFrame > 0.5)
 	{
-		if (mDynGpuSamples == 0)
-		{
-			mDynGpuFrame = gpuFrame;
-			mDynGpuScene = gpuScene;
-		}
-		mDynGpuFrame += (gpuFrame - mDynGpuFrame) * 0.1;
-		mDynGpuScene += (gpuScene - mDynGpuScene) * 0.1;
+		// plain mean of the first samples after a change, then a running average
+		const double k = mDynGpuSamples < 10 ? 1.0 / (mDynGpuSamples + 1) : 0.1;
+		mDynGpuFrame += (gpuFrame - mDynGpuFrame) * k;
+		mDynGpuScene += (gpuScene - mDynGpuScene) * k;
 		mDynGpuSamples = min(mDynGpuSamples + 1, 1000);
 		mDynGpuSeen = true;
 	}
@@ -372,9 +369,11 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	// used again: they ran while the average settled after each change (20
 	// frames) and, with the CPU over budget (slaughter map, 1000+ monsters,
 	// 20 ms frames), dropped every rise right back to 60% (2026-10-13 test).
-	if (mDynGpuSeen && mDynGpuSamples < 30)
+	// 8 samples at the new scale: with 30 the Lexicon hub (GPU 18-23 ms at
+	// full scale) spent its first seconds at 22 fps stepping down from 100%
+	if (mDynGpuSeen && mDynGpuSamples < 8)
 		return;
-	if (mDynGpuSamples >= 30)
+	if (mDynGpuSamples >= 8)
 	{
 		// the 3D view grows with its pixel count; the rest of the frame does not
 		auto predict = [&](float scale) { return mDynGpuFrame + mDynGpuScene * ((scale * scale) / (mDynScale * mDynScale) - 1.0); };
@@ -385,11 +384,13 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 				mDynCeiling = mDynScale - 0.05f;
 				mDynCeilingFrames = 1200;
 			}
-			float s = mDynScale * (float)sqrt(budget * 0.85 / mDynGpuFrame);
-			s = max(s, mDynScale * 0.8f);
-			mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, 1.0f);
+			// what the 3D view may cost to fit 85% of the frame
+			const double sceneBudget = budget * 0.85 - (mDynGpuFrame - mDynGpuScene);
+			float s = sceneBudget > 0.5 ? mDynScale * (float)sqrt(sceneBudget / max(mDynGpuScene, 0.5)) : minScale;
+			s = max(s, mDynScale * 0.6f);
+			mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, mDynScale - 0.05f);
 			mDynCalmFrames = 0;
-			mDynGpuSamples = 10;	// the average restarts at the new scale (20 more frames)
+			mDynGpuSamples = 0;	// the average restarts at the new scale
 		}
 		else if (mDynScale < 1.0f && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
 		{
@@ -404,7 +405,7 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 				else
 					return;
 				mDynFramesSinceRise = 0;
-				mDynGpuSamples = 10;
+				mDynGpuSamples = 0;
 			}
 		}
 		else
