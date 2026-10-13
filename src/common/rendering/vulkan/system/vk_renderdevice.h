@@ -145,6 +145,7 @@ private:
 	double mDynRestAtFull = 3.5;	// GPU ms outside the 3D view at full scale (running average)
 	double mDynGpuFrame = 0, mDynGpuScene = 0;	// GPU ms per frame / for the 3D view (running average)
 	int mDynGpuSamples = 0;
+	bool mDynGpuSeen = false;	// timestamps work here (not in Ryujinx)
 	bool mSceneScaled = false;
 	IntRect mSceneFull, mSceneSmall;
 	void UpdateDynamicResolution();

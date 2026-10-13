@@ -330,6 +330,7 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	{
 		mDynScale = 1.0f;
 		mDynCalmFrames = 0;
+		mDynGpuSamples = 0;	// a new map starts its own average (the Lexicon hub's must not carry over)
 		return;
 	}
 	// Drop: the previous frame missed vsync and this one had to wait for the
@@ -365,7 +366,14 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		mDynGpuFrame += (gpuFrame - mDynGpuFrame) * 0.1;
 		mDynGpuScene += (gpuScene - mDynGpuScene) * 0.1;
 		mDynGpuSamples = min(mDynGpuSamples + 1, 1000);
+		mDynGpuSeen = true;
 	}
+	// Once the console has delivered timestamps the frame-time rules are never
+	// used again: they ran while the average settled after each change (20
+	// frames) and, with the CPU over budget (slaughter map, 1000+ monsters,
+	// 20 ms frames), dropped every rise right back to 60% (2026-10-13 test).
+	if (mDynGpuSeen && mDynGpuSamples < 30)
+		return;
 	if (mDynGpuSamples >= 30)
 	{
 		// the 3D view grows with its pixel count; the rest of the frame does not

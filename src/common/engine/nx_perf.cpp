@@ -53,7 +53,7 @@ static struct
 {
 	double tic, think, display, swap, sndupd, sndstart, tex, scene, bsp, hud, update, gpuwait, frame, gc, wait, net, input, music, client, glsync, glfinish, draw2d, frameend, present, vksubmit, vkclean, vkacquire, vkpresent, vkpending, gpuframe, gpuscene, gpupost, gpuend;
 	int gpuframes;
-	double scalesum; float scalemin;
+	double scalesum; float scalemin, scalemax;
 	double halfarea, halfareamax;
 	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled, halfeffects;
 } win;
@@ -215,6 +215,7 @@ void NXPerf_EndFrame()
 		win.gpuend += nxperf.gpu_end_ms;
 		win.scalesum += nxperf.scene_scale;
 		if (win.scalemin <= 0 || nxperf.scene_scale < win.scalemin) win.scalemin = nxperf.scene_scale;
+		if (nxperf.scene_scale > win.scalemax) win.scalemax = nxperf.scene_scale;
 		win.draws += nxperf.draws;
 		win.lightuploads += nxperf.lightuploads;
 		win.lightskips += nxperf.lightskips;
@@ -293,9 +294,9 @@ void NXPerf_EndFrame()
 			if (win.gpuframes > 0)
 			{
 				double g = win.gpuframes;
-				fprintf(perfFile, "#   gpu (%s): frame %.2f ms = 3D scene %.2f + post-processing %.2f + 2D/present %.2f (avg of %d frames) | 3D resolution avg %.0f%%, min %.0f%%\n",
+				fprintf(perfFile, "#   gpu (%s): frame %.2f ms = 3D scene %.2f + post-processing %.2f + 2D/present %.2f (avg of %d frames) | 3D resolution avg %.0f%%, min %.0f%%, max %.0f%%\n",
 					NXOperationMode(), win.gpuframe / g, win.gpuscene / g, win.gpupost / g, win.gpuend / g, win.gpuframes,
-					frames ? 100.0 * win.scalesum / frames : 100.0, win.scalemin > 0 ? 100.0 * win.scalemin : 100.0);
+					frames ? 100.0 * win.scalesum / frames : 100.0, win.scalemin > 0 ? 100.0 * win.scalemin : 100.0, win.scalemax > 0 ? 100.0 * win.scalemax : 100.0);
 			}
 			NXGLThreadStats(perfFile);
 			if (NXPerf_SummaryHook) NXPerf_SummaryHook(perfFile);
