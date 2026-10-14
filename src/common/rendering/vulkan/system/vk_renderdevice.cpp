@@ -378,6 +378,10 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	// timestamps said 12-13 ms of GPU: they do not see all of its load, so a
 	// frame rate that stays below 60 with long waits for the GPU also drops
 	// the scale, and the scale only rises while the game holds 60 fps.
+	// Freedoom 2 MAP01 on the console (1.0.0) sat at 54-57 fps for whole
+	// minutes, CPU waiting 13-14 ms for the GPU, timestamps 11 ms: between the
+	// old drop (18.7 ms) and rise (17.5 ms) averages nothing moved the scale.
+	// Now under ~57.7 fps with long waits drops it; a rise needs ~58.8 fps.
 	mDynAvgFrame += (frameMs - mDynAvgFrame) * 0.05;
 	mDynAvgWait += (waitMs - mDynAvgWait) * 0.05;
 	if (mDynGpuSeen && mDynGpuSamples < 8)
@@ -387,7 +391,7 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		// the 3D view grows with its pixel count; the rest of the frame does not
 		auto predict = [&](float scale) { return mDynGpuFrame + mDynGpuScene * ((scale * scale) / (mDynScale * mDynScale) - 1.0); };
 		const bool gpuBound = (frameMs > budget + 1.5 && waitMs > 2.5 && mDynGpuFrame > budget * 0.9) ||
-			(mDynAvgFrame > budget * 1.12 && mDynAvgWait > 6.0);
+			(mDynAvgFrame > budget * 1.04 && mDynAvgWait > 6.0);
 		if (gpuBound && mDynScale > minScale + 0.001f)
 		{
 			if (mDynFramesSinceRise < 120)
@@ -405,7 +409,7 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 			mDynAvgFrame = budget;	// and so do the frame and wait averages
 			mDynAvgWait = 0;
 		}
-		else if (mDynScale < 1.0f && mDynAvgFrame < budget * 1.05 && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
+		else if (mDynScale < 1.0f && mDynAvgFrame < budget * 1.02 && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
 		{
 			if (++mDynCalmFrames >= 45)
 			{
