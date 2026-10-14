@@ -31,6 +31,9 @@
 #include "v_video.h"
 #include "fcolormap.h"
 #include "texturemanager.h"
+#ifdef __SWITCH__
+#include "nx_perf.h"
+#endif
 
 static F2DDrawer drawer = F2DDrawer();
 F2DDrawer* twod = &drawer;
@@ -434,6 +437,21 @@ void F2DDrawer::AddTexture(FGameTexture* img, DrawParms& parms)
 
 	dg.mTranslationId = NO_TRANSLATION;
 	SetStyle(img, parms, vertexcolor, dg);
+#ifdef __SWITCH__
+	// An image whose final alpha is 0 under a source-alpha blend leaves the
+	// screen as it was, but still costs its whole area in fill. Project
+	// Brutality's visor draws ~20 corner layers a frame, several at alpha 0
+	// depending on the sector light (console: 5-6 ms of GPU in 2D).
+	if (vertexcolor.a == 0 && !parms.burn && dg.mRenderStyle.BlendOp == STYLEOP_Add && dg.mRenderStyle.SrcAlpha == STYLEALPHA_Src &&
+		(dg.mRenderStyle.DestAlpha == STYLEALPHA_InvSrc || dg.mRenderStyle.DestAlpha == STYLEALPHA_One))
+	{
+		nxperf.skipped2d++;
+		return;
+	}
+	nxperf.draws2d++;
+	if (Width > 0 && Height > 0)
+		nxperf.area2d += fabs(parms.destwidth * parms.destheight) / (double(Width) * Height);
+#endif
 	if (parms.indexed)
 	{
 		dg.mLightLevel = vertexcolor.Luminance();

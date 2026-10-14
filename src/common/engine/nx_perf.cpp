@@ -62,6 +62,7 @@ static struct
 	double nmalloc, ncopy, nctor, nspec; double nbytes;
 	double hmalloc, hfree; int hmallocs, hfrees;
 	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled, halfeffects;
+	int draws2d, skipped2d; double area2d;
 } win;
 
 #ifdef __SWITCH__
@@ -210,6 +211,9 @@ void NXPerf_EndFrame()
 		win.effectsculled += nxperf.effectsculled;
 		win.halfeffects += nxperf.halfeffects;
 		win.halfarea += nxperf.halfarea;
+		win.draws2d += nxperf.draws2d;
+		win.skipped2d += nxperf.skipped2d;
+		win.area2d += nxperf.area2d;
 		win.checkpos_ms += nxperf.checkpos_ms;
 		win.checkpos += nxperf.checkpos;
 		win.checkthings += nxperf.checkthings;
@@ -327,6 +331,8 @@ void NXPerf_EndFrame()
 						win.hmallocs / frames, win.hmalloc / frames, win.hfrees / frames, win.hfree / frames);
 				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d), effects left out per frame %.1f, in the half-resolution layer %.1f (their area %.2f screens, most %.2f)\n",
 					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n, win.halfeffects / n, win.halfarea / n, win.halfareamax);
+				fprintf(perfFile, "#   2D (HUD, menus, messages) per frame: %.0f images covering %.2f screens, %.1f fully transparent ones left out\n",
+					win.draws2d / n, win.area2d / n, win.skipped2d / n);
 			}
 			if (frames > 0 && win.vksubmits > 0)
 			{
