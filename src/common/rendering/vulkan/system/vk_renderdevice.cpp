@@ -382,8 +382,13 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	// minutes, CPU waiting 13-14 ms for the GPU, timestamps 11 ms: between the
 	// old drop (18.7 ms) and rise (17.5 ms) averages nothing moved the scale.
 	// Now under ~57.7 fps with long waits drops it; a rise needs ~58.8 fps.
-	mDynAvgFrame += (frameMs - mDynAvgFrame) * 0.05;
-	mDynAvgWait += (waitMs - mDynAvgWait) * 0.05;
+	// The sustained wait also counts the last frame's acquire (no swapchain
+	// image free yet: the GPU is behind too): the Lexicon slaughter pack ran
+	// at 52 fps with 4.9 ms at frame start and the old 6 ms limit (console,
+	// engine 6926966ab); CPU-bound maps wait ~1 ms in all.
+	// one loading hitch (0.5 s for a new texture) must not look like 20 slow frames
+	mDynAvgFrame += (min(frameMs, budget * 2.0) - mDynAvgFrame) * 0.05;
+	mDynAvgWait += (waitMs + NXPerf_LastAcquireMS() - mDynAvgWait) * 0.05;
 	if (mDynGpuSeen && mDynGpuSamples < 8)
 		return;
 	if (mDynGpuSamples >= 8)
@@ -391,7 +396,7 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		// the 3D view grows with its pixel count; the rest of the frame does not
 		auto predict = [&](float scale) { return mDynGpuFrame + mDynGpuScene * ((scale * scale) / (mDynScale * mDynScale) - 1.0); };
 		const bool gpuBound = (frameMs > budget + 1.5 && waitMs > 2.5 && mDynGpuFrame > budget * 0.9) ||
-			(mDynAvgFrame > budget * 1.04 && mDynAvgWait > 6.0);
+			(mDynAvgFrame > budget * 1.04 && mDynAvgWait > 4.0);
 		if (gpuBound && mDynScale > minScale + 0.001f)
 		{
 			if (mDynFramesSinceRise < 120)

@@ -42,6 +42,7 @@ static int linesWritten = 0;
 static FILE *perfFile = nullptr;
 static double sumFrame = 0, maxFrame = 0;
 static double lastTicWaitMS = 0;
+static double lastAcquireMS = 0;
 static int frames = 0;
 static int missed1 = 0, missed2 = 0;	// frames over one / over two vsync intervals
 static double lastSummary = 0;
@@ -117,6 +118,11 @@ double NXPerf_LastTicWaitMS()
 	return lastTicWaitMS;
 }
 
+double NXPerf_LastAcquireMS()
+{
+	return lastAcquireMS;
+}
+
 double NXPerf_LastSimMS()
 {
 	return lastSimMS;
@@ -153,6 +159,7 @@ void NXPerf_EndFrame()
 	lastFrame = now;
 	lastFrameMS = frame;
 	lastTicWaitMS = nxperf.wait_ms;
+	lastAcquireMS = nxperf.vkacquire_ms;
 	lastSimMS = nxperf.tic_ms;
 	lastTicMS = (nxperf.tics > 0) ? nxperf.tic_ms / nxperf.tics : 0;
 
