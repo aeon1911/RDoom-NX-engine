@@ -125,6 +125,12 @@ bool MPG123Decoder::open(MusicIO::FileInterface *reader)
 
     {
         MPG123 = mpg123_new(NULL, NULL);
+#ifdef __SWITCH__
+        // No printouts: Project Brutality's MP3 sounds start with junk and every
+        // one wrote resync notes to stderr, which RDoom keeps on the SD card
+        // (~1000 lines in one console session)
+        if (MPG123) mpg123_param(MPG123, MPG123_ADD_FLAGS, MPG123_QUIET, 0.);
+#endif
         if(mpg123_replace_reader_handle(MPG123, file_read, file_lseek, NULL) == MPG123_OK &&
            mpg123_open_handle(MPG123, this) == MPG123_OK)
         {
