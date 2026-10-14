@@ -5416,6 +5416,8 @@ DEFINE_ACTION_FUNCTION(AActor, UpdateWaterLevel)
 //
 //==========================================================================
 
+static int nxSpawnDepth = 0;	// AActor::StaticSpawn nesting (perf.log: outermost spawns only)
+
 void ConstructActor(AActor *actor, const DVector3 &pos, bool SpawningMapThing)
 {
 	const bool clientside = actor->IsClientSide();
@@ -5473,7 +5475,9 @@ void ConstructActor(AActor *actor, const DVector3 &pos, bool SpawningMapThing)
 	}
 
 	// set subsector and/or block links
+	double nxT = nxSpawnDepth == 1 ? NXPerf_NowMS() : 0;
 	actor->LinkToWorld (nullptr, SpawningMapThing);
+	if (nxSpawnDepth == 1) { const double t = NXPerf_NowMS(); nxperf.spawn_link_ms += t - nxT; nxT = t; }
 	actor->ClearInterpolation();
 	actor->ClearFOVInterpolation();
 
@@ -5562,9 +5566,11 @@ void ConstructActor(AActor *actor, const DVector3 &pos, bool SpawningMapThing)
 		actor->Floorclip = 0;
 	}
 	actor->UpdateWaterLevel (false);
+	if (nxSpawnDepth == 1) { const double t = NXPerf_NowMS(); nxperf.spawn_place_ms += t - nxT; nxT = t; }
 	if (!SpawningMapThing)
 	{
 		actor->CallBeginPlay ();
+		if (nxSpawnDepth == 1) nxperf.spawn_begin_ms += NXPerf_NowMS() - nxT;
 		if (actor->ObjectFlags & OF_EuthanizeMe)
 		{
 			return;
@@ -5596,7 +5602,6 @@ void ConstructActor(AActor *actor, const DVector3 &pos, bool SpawningMapThing)
 AActor *AActor::StaticSpawn(FLevelLocals *Level, PClassActor *type, const DVector3 &pos, replace_t allowreplacement, bool SpawningMapThing)
 {
 	// perf.log "spawn": outermost spawns only (BeginPlay/PostBeginPlay may spawn more)
-	static int nxSpawnDepth = 0;
 	struct NXSpawnTimer
 	{
 		double start = nxSpawnDepth++ == 0 ? NXPerf_NowMS() : -1;
@@ -5620,6 +5625,7 @@ AActor *AActor::StaticSpawn(FLevelLocals *Level, PClassActor *type, const DVecto
 
 	AActor *actor;
 
+	double nxT = nxSpawnDepth == 1 ? NXPerf_NowMS() : 0;
 	if (GetDefaultByType(type)->IsClientSide())
 	{
 		actor = static_cast<AActor*>(Level->CreateClientSideThinker(type));
@@ -5629,6 +5635,7 @@ AActor *AActor::StaticSpawn(FLevelLocals *Level, PClassActor *type, const DVecto
 		actor = static_cast<AActor*>(Level->CreateThinker(type));
 		actor->EnableNetworking(true);
 	}
+	if (nxSpawnDepth == 1) nxperf.spawn_create_ms += NXPerf_NowMS() - nxT;
 
 	ConstructActor(actor, pos, SpawningMapThing);
 	{

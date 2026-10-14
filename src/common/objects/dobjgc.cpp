@@ -25,6 +25,7 @@
 // HEADER FILES ------------------------------------------------------------
 
 #include "dobject.h"
+#include "nx_objpool.h"
 
 #include "c_dispatch.h"
 #include "menu.h"
@@ -232,7 +233,7 @@ static size_t SweepObjects(size_t count)
 				*SweepPos = curr->ObjNext;
 				curr->ObjectFlags |= OF_Cleanup;
 				curr->~DObject();
-				M_Free(curr);
+				NXObj_Free(curr);
 				swept += GCDELETECOST;
 			}
 		}
@@ -599,7 +600,7 @@ void DelSoftRootHead()
 		// Don't let the destructor print a warning message
 		SoftRoots->ObjectFlags |= OF_YesReallyDelete;
 		SoftRoots->~DObject();
-		M_Free(SoftRoots);
+		NXObj_Free(SoftRoots);
 	}
 	SoftRoots = nullptr;
 }

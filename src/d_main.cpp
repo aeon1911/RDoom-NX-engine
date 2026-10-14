@@ -4496,6 +4496,10 @@ void SignalHandler(int signal)
 
 int GameMain()
 {
+	{
+		extern void NXObj_MarkGameThread();
+		NXObj_MarkGameThread();	// perf.log heap counters (Switch)
+	}
 	// On Windows, prefer the native win32 backend.
 	// On other platforms, use SDL until the other backends are more mature.
 	auto zwidget = DisplayBackend::TryCreateWin32();

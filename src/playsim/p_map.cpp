@@ -51,6 +51,7 @@
 #include "p_linetracedata.h"
 #include "p_lnspec.h"
 #include "p_local.h"
+#include "nx_perf.h"
 #include "p_maputl.h"
 #include "p_spec.h"
 #include "p_terrain.h"
@@ -1358,6 +1359,7 @@ DEFINE_ACTION_FUNCTION_NATIVE(AActor, DoMissileDamage, P_DoMissileDamage)
 
 bool PIT_CheckThing(FMultiBlockThingsIterator &it, FMultiBlockThingsIterator::CheckResult &cres, const FBoundingBox &box, FCheckPosition &tm)
 {
+	nxperf.checkthings++;
 	AActor *thing = cres.thing;
 	double topz;
 	bool 	solid;
@@ -1769,6 +1771,14 @@ MOVEMENT CLIPPING
 
 bool P_CheckPosition(AActor *thing, const DVector2 &pos, FCheckPosition &tm, bool actorsonly)
 {
+	// perf.log: hordes (2000 actors in a slaughter map) spend their tics here
+	static int nxDepth = 0;
+	struct NXCheckScope
+	{
+		double start;
+		NXCheckScope() : start(nxDepth++ == 0 ? NXPerf_NowMS() : -1.0) {}
+		~NXCheckScope() { if (--nxDepth == 0) { nxperf.checkpos_ms += NXPerf_NowMS() - start; nxperf.checkpos++; } }
+	} nxCheckScope;
 	sector_t *newsec;
 	AActor *thingblocker;
 	double realHeight = thing->Height;

@@ -1170,6 +1170,7 @@ set (PCH_SOURCES
 	common/objects/dobject.cpp
 	common/objects/dobjgc.cpp
 	common/objects/dobjtype.cpp
+	common/objects/nx_objpool.cpp
 	common/menu/joystickmenu.cpp
 	common/menu/menu.cpp
 	common/menu/messagebox.cpp
@@ -1409,6 +1410,7 @@ if( NINTENDO_SWITCH )
 	target_link_libraries( zdoom -Wl,--start-group rdoom_launcher_ui rdoom_launcher_core ${PROJECT_LIBRARIES} lzma ${ZMUSIC_LIBRARIES} absl::base absl::flat_hash_map absl::strings absl::hash nx -Wl,--end-group )
 	# nx_tls_bridge.c: TPIDR_EL0 for the Rust code in the Mesa SDK.
 	# nx_nvcompat.c: emulator quirk in fixed GPU VA reservations.
+	target_link_options( zdoom PRIVATE "-Wl,--wrap=malloc" "-Wl,--wrap=free" "-Wl,--wrap=realloc" "-Wl,--wrap=calloc" )
 	target_link_options( zdoom PRIVATE "-Wl,--wrap=threadCreate"
 		"-Wl,--wrap=nvioctlNvhostAsGpu_AllocSpace" "-Wl,--wrap=nvioctlNvhostAsGpu_FreeSpace" "-Wl,--wrap=nvioctlNvhostAsGpu_InitializeEx"
 		"-pthread" )

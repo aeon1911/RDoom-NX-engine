@@ -27,6 +27,8 @@
 #include "autosegs.h"
 #include "c_cvars.h"
 #include "dobject.h"
+#include "nx_perf.h"
+#include "nx_objpool.h"
 #include "printf.h"
 #include "serializer.h"
 #include "symbols.h"
@@ -447,27 +449,34 @@ PClass *PClass::FindClass (FName zaname)
 
 DObject *PClass::CreateNew()
 {
-	uint8_t *mem = (uint8_t *)M_Malloc (Size);
+	// perf.log test counters (Switch): where actor creation spends its time
+	double nxT = NXPerf_NowMS(), nxT2;
+	uint8_t *mem = (uint8_t *)NXObj_Alloc (Size);
 	assert (mem != nullptr);
+	nxT2 = NXPerf_NowMS(); nxperf.new_malloc_ms += nxT2 - nxT; nxT = nxT2;
 
 	// Set this object's defaults before constructing it.
 	if (Defaults != nullptr)
 		memcpy (mem, Defaults, Size);
 	else
 		memset (mem, 0, Size);
+	nxT2 = NXPerf_NowMS(); nxperf.new_copy_ms += nxT2 - nxT; nxT = nxT2;
+	nxperf.new_bytes += Size;
 
 	if (ConstructNative == nullptr || bAbstract)
 	{
-		M_Free(mem);
+		NXObj_Free(mem);
 		I_Error("Attempt to instantiate abstract class %s.", TypeName.GetChars());
 	}
 	ConstructNative (mem);
+	nxT2 = NXPerf_NowMS(); nxperf.new_ctor_ms += nxT2 - nxT; nxT = nxT2;
 
 	if (Defaults != nullptr)
 		((DObject *)mem)->ObjectFlags |= ((DObject *)Defaults)->ObjectFlags & OF_TransferrableFlags;
 
 	((DObject *)mem)->SetClass (const_cast<PClass *>(this));
 	InitializeSpecials(mem, Defaults, &PClass::SpecialInits);
+	nxperf.new_specials_ms += NXPerf_NowMS() - nxT;
 	SetObjectFlagsFromScope((DObject *)mem);
 	NetworkEntityManager::AddPredictedEntity((DObject *)mem);
 	return (DObject *)mem;

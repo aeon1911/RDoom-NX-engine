@@ -55,6 +55,11 @@ static struct
 	int gpuframes;
 	double scalesum; float scalemin, scalemax;
 	double halfarea, halfareamax;
+	double checkpos_ms; int checkpos, checkthings;
+	double sight_ms, spawnms; int sights, spawns;
+	double spcreate, splink, spplace, spbegin;
+	double nmalloc, ncopy, nctor, nspec; double nbytes;
+	double hmalloc, hfree; int hmallocs, hfrees;
 	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled, halfeffects;
 } win;
 
@@ -198,6 +203,26 @@ void NXPerf_EndFrame()
 		win.effectsculled += nxperf.effectsculled;
 		win.halfeffects += nxperf.halfeffects;
 		win.halfarea += nxperf.halfarea;
+		win.checkpos_ms += nxperf.checkpos_ms;
+		win.checkpos += nxperf.checkpos;
+		win.checkthings += nxperf.checkthings;
+		win.sight_ms += nxperf.sight_ms;
+		win.sights += nxperf.sights;
+		win.spawnms += nxperf.spawn_ms;
+		win.spawns += nxperf.spawns;
+		win.spcreate += nxperf.spawn_create_ms;
+		win.splink += nxperf.spawn_link_ms;
+		win.spplace += nxperf.spawn_place_ms;
+		win.spbegin += nxperf.spawn_begin_ms;
+		win.nmalloc += nxperf.new_malloc_ms;
+		win.ncopy += nxperf.new_copy_ms;
+		win.nctor += nxperf.new_ctor_ms;
+		win.nspec += nxperf.new_specials_ms;
+		win.nbytes += nxperf.new_bytes;
+		win.hmalloc += nxperf.heap_malloc_ms;
+		win.hfree += nxperf.heap_free_ms;
+		win.hmallocs += nxperf.heap_mallocs;
+		win.hfrees += nxperf.heap_frees;
 		win.halfareamax = std::max(win.halfareamax, nxperf.halfarea);
 		win.draw2d += nxperf.draw2d_ms;
 		win.present += nxperf.present_ms;
@@ -282,6 +307,17 @@ void NXPerf_EndFrame()
 				fprintf(perfFile, "#   per tic: %.1f ms, %d thinkers | draw items per frame %d (%d translucent) | sound starts/s %.0f | sprites waiting for their picture per frame %.1f\n",
 					win.tics ? win.tic / win.tics : 0.0, win.tics ? win.thinkers / win.tics : 0, win.drawitems / frames, win.transitems / frames,
 					win.sndstarts * 1000.0 / (sumFrame > 0 ? sumFrame : 1), win.spriteskips / n);
+				if (win.tics > 0)
+					fprintf(perfFile, "#   per tic: collision %d position checks (%.2f ms), %d actors tested | sight checks %d (%.2f ms) | actors spawned %d (%.2f ms: create %.2f, link %.2f, place %.2f, BeginPlay %.2f)\n",
+						win.checkpos / win.tics, win.checkpos_ms / win.tics, win.checkthings / win.tics,
+						win.sights / win.tics, win.sight_ms / win.tics, win.spawns / win.tics, win.spawnms / win.tics,
+						win.spcreate / win.tics, win.splink / win.tics, win.spplace / win.tics, win.spbegin / win.tics);
+				if (win.tics > 0)
+					fprintf(perfFile, "#   object creation per tic: malloc %.2f ms, defaults copy %.2f ms (%.0f KB), constructor %.2f ms, script fields %.2f ms\n",
+						win.nmalloc / win.tics, win.ncopy / win.tics, win.nbytes / 1024.0 / win.tics, win.nctor / win.tics, win.nspec / win.tics);
+				if (frames > 0)
+					fprintf(perfFile, "#   heap per frame (game thread): %d malloc/realloc (%.2f ms), %d free (%.2f ms)\n",
+						win.hmallocs / frames, win.hmalloc / frames, win.hfrees / frames, win.hfree / frames);
 				fprintf(perfFile, "#   GL draw calls per frame %.0f | dynamic lights per frame: %.1f used of %.1f | light uploads %.0f, identical skipped %.0f | stabilizer level avg %.2f (now %d), effects left out per frame %.1f, in the half-resolution layer %.1f (their area %.2f screens, most %.2f)\n",
 					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n, win.halfeffects / n, win.halfarea / n, win.halfareamax);
 			}

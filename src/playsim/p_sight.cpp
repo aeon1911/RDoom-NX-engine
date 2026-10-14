@@ -23,6 +23,7 @@
 #include "doomdef.h"
 
 #include "p_local.h"
+#include "nx_perf.h"
 #include "p_maputl.h"
 #include "p_blockmap.h"
 #include "m_random.h"
@@ -839,6 +840,7 @@ sightcounts[2]++;
 
 int P_CheckSight (AActor *t1, AActor *t2, int flags)
 {
+	NXPERF_SCOPE(sight_ms, &nxperf.sights);
 	SightCycles.Clock();
 
 	bool res;

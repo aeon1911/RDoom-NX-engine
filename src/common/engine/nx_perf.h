@@ -22,6 +22,15 @@ struct NXPerfCounters
 	double think_ms = 0;	// actors and other thinkers (part of tic_ms)
 	double player_ms = 0;	// P_PlayerThink: movement and weapon actions (part of tic_ms, not of think_ms)
 	double spawn_ms = 0;	// spawning actors, outermost calls only (inside think_ms/player_ms)
+	double checkpos_ms = 0;	// P_CheckPosition (collision of a move), outermost calls only
+	int checkpos = 0, checkthings = 0;	// those calls / actors tested against by them
+	double spawn_create_ms = 0, spawn_link_ms = 0, spawn_place_ms = 0, spawn_begin_ms = 0;	// parts of spawn_ms
+	double new_malloc_ms = 0, new_copy_ms = 0, new_ctor_ms = 0, new_specials_ms = 0;	// PClass::CreateNew parts
+	int new_bytes = 0;
+	double heap_malloc_ms = 0, heap_free_ms = 0;	// game thread: malloc+realloc+calloc / free
+	int heap_mallocs = 0, heap_frees = 0;
+	double sight_ms = 0;	// P_CheckSight (line of sight between two actors)
+	int sights = 0;
 	int spawns = 0;
 	double begin_ms = 0;
 	double begin_wait_ms = 0, begin_save_ms = 0, begin_buffers_ms = 0, begin_sprites_ms = 0;	// parts of begin_ms (Vulkan)
