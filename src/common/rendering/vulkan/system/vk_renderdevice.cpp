@@ -331,6 +331,8 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 		mDynScale = 1.0f;
 		mDynCalmFrames = 0;
 		mDynGpuSamples = 0;	// a new map starts its own average (the Lexicon hub's must not carry over)
+		mDynAvgFrame = 1000.0 / 60.0;
+		mDynAvgWait = 0;
 		return;
 	}
 	// Drop: the previous frame missed vsync and this one had to wait for the
@@ -371,13 +373,22 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 	// 20 ms frames), dropped every rise right back to 60% (2026-10-13 test).
 	// 8 samples at the new scale: with 30 the Lexicon hub (GPU 18-23 ms at
 	// full scale) spent its first seconds at 22 fps stepping down from 100%
+	// Sustained averages (~20 frames). Ashes 2063 on the console ran at 46-53
+	// fps with the CPU waiting 13-15 ms per frame for the GPU while the
+	// timestamps said 12-13 ms of GPU: they do not see all of its load, so a
+	// frame rate that stays below 60 with long waits for the GPU also drops
+	// the scale, and the scale only rises while the game holds 60 fps.
+	mDynAvgFrame += (frameMs - mDynAvgFrame) * 0.05;
+	mDynAvgWait += (waitMs - mDynAvgWait) * 0.05;
 	if (mDynGpuSeen && mDynGpuSamples < 8)
 		return;
 	if (mDynGpuSamples >= 8)
 	{
 		// the 3D view grows with its pixel count; the rest of the frame does not
 		auto predict = [&](float scale) { return mDynGpuFrame + mDynGpuScene * ((scale * scale) / (mDynScale * mDynScale) - 1.0); };
-		if (frameMs > budget + 1.5 && waitMs > 2.5 && mDynGpuFrame > budget * 0.9)
+		const bool gpuBound = (frameMs > budget + 1.5 && waitMs > 2.5 && mDynGpuFrame > budget * 0.9) ||
+			(mDynAvgFrame > budget * 1.12 && mDynAvgWait > 6.0);
+		if (gpuBound && mDynScale > minScale + 0.001f)
 		{
 			if (mDynFramesSinceRise < 120)
 			{
@@ -391,8 +402,10 @@ void VulkanRenderDevice::UpdateDynamicResolution()
 			mDynScale = clamp(floorf(s * 20.0f) / 20.0f, minScale, mDynScale - 0.05f);
 			mDynCalmFrames = 0;
 			mDynGpuSamples = 0;	// the average restarts at the new scale
+			mDynAvgFrame = budget;	// and so do the frame and wait averages
+			mDynAvgWait = 0;
 		}
-		else if (mDynScale < 1.0f && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
+		else if (mDynScale < 1.0f && mDynAvgFrame < budget * 1.05 && predict(min(1.0f, mDynScale + 0.05f)) < budget * 0.85)
 		{
 			if (++mDynCalmFrames >= 45)
 			{
