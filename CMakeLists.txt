@@ -295,6 +295,7 @@ if( ${TARGET_ARCHITECTURE} MATCHES "x86_64" )
 endif()
 
 option (HAVE_VULKAN "Enable Vulkan support" ON)
+option (HAVE_OPENGL "Enable the OpenGL backend" ON)
 if( APPLE )
 	option (HAVE_GLES2 "Enable GLES2 support" OFF)
 else()
@@ -304,8 +305,8 @@ option (NO_DISCORDRPC "Disable Discord RPC support" OFF)
 
 if( NINTENDO_SWITCH )
 	set( NO_DISCORDRPC ON )
-	# Vulkan (Mesa NVK) is RDoom's primary renderer; OpenGL / OpenGL ES stay
-	# available as explicit choices in the launcher.
+	# RDoom renders with Vulkan (Mesa NVK) only: scripts/build.sh turns
+	# HAVE_OPENGL and HAVE_GLES2 off.
 	if( HAVE_VULKAN )
 		add_compile_definitions( VK_USE_PLATFORM_VI_NN=1 )
 	endif()
@@ -323,6 +324,10 @@ if( MSVC )
 
 	if ( HAVE_VULKAN )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_VULKAN" )
+	endif()
+
+	if ( HAVE_OPENGL )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} /DHAVE_OPENGL" )
 	endif()
 
 	if ( HAVE_GLES2 )
@@ -365,6 +370,10 @@ else()
 
 	if ( HAVE_VULKAN )
 		set( ALL_C_FLAGS "${ALL_C_FLAGS} -DHAVE_VULKAN" )
+	endif()
+
+	if ( HAVE_OPENGL )
+		set( ALL_C_FLAGS "${ALL_C_FLAGS} -DHAVE_OPENGL" )
 	endif()
 
 	if ( HAVE_GLES2 )

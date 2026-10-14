@@ -5,4 +5,4 @@
 #define RDOOM_BUILD_DATE "@RDOOM_BUILD_DATE@"
 #define RDOOM_GIT_DESCRIBE "@RDOOM_GIT_DESCRIBE@"
 #define RDOOM_ENGINE_VERSION "UZDoom 5.0.3 (7910df71)"
-#define RDOOM_GFX_VERSION "Mesa 26.2.4 Horizon SDK: NVK (Vulkan) + EGL/OpenGL/OpenGL ES"
+#define RDOOM_GFX_VERSION "Mesa 26.2.4 Horizon SDK: NVK (Vulkan)"

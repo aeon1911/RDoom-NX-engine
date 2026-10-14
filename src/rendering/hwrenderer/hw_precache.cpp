@@ -86,7 +86,9 @@ static void PrecacheSprite(FGameTexture *tex, SpriteHits &hits)
 //
 //==========================================================================
 
+#ifdef HAVE_GLES2
 void GLES_AsyncTexFlush();
+#endif
 extern bool NXSpriteDecoderActive;
 void VkAsyncTex_Flush();
 void NXPrefetch_NewLevel();
@@ -95,7 +97,9 @@ void NXPrefetch_Class(PClassActor *cls, int maxtextures, bool urgent);
 void hw_PrecacheTexture(uint8_t *texhitlist, TMap<PClassActor*, bool> &actorhitlist)
 {
 	// nothing may be decoding textures in the background while precaching
+#ifdef HAVE_GLES2
 	GLES_AsyncTexFlush();
+#endif
 	VkAsyncTex_Flush();
 	NXPrefetch_NewLevel();
 

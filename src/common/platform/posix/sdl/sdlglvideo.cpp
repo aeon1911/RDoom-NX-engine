@@ -49,7 +49,9 @@
 
 #include "basics.h"
 #include "c_dispatch.h"
+#ifdef HAVE_OPENGL
 #include "gl_framebuffer.h"
+#endif
 #include "gl_sysfb.h"
 #include "i_soundinternal.h"
 #include "i_video.h"
@@ -409,6 +411,12 @@ SDLVideo::SDLVideo ()
 	}
 
 #ifdef HAVE_VULKAN
+#if defined(__SWITCH__)
+	// RDoom renders with Vulkan only; a config written by an older build may
+	// still ask for OpenGL or OpenGL ES (removed from the launcher)
+	if (vid_preferbackend != BACKEND_VULKAN)
+		vid_preferbackend = BACKEND_VULKAN;
+#endif
 	Priv::vulkanEnabled = vid_preferbackend == BACKEND_VULKAN;
 
 	if (Priv::vulkanEnabled)
@@ -562,12 +570,11 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 		catch (CVulkanError const &error)
 		{
 #ifdef __SWITCH__
-			// No silent switch to OpenGL: the profile asked for Vulkan.
+			// RDoom renders with Vulkan only: no other renderer to fall back to.
 			RDoom_SessionSet("renderer_active", "none");
 			RDoom_SessionSet("vulkan_error", error.what());
 			I_FatalError("O Vulkan n\xc3\xa3o p\xc3\xb4" "de ser iniciado / Vulkan could not be started:\n%s\n\n"
-				"Detalhes em switch/rdoom/logs/engine-session.txt.\n"
-				"Para usar outro renderizador, escolha OpenGL ou OpenGL ES no perfil (launcher > Editar perfil > Renderizador).", error.what());
+				"Detalhes em switch/rdoom/logs/engine-session.txt.", error.what());
 #else
 			if (Priv::window != nullptr)
 			{
@@ -581,6 +588,7 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 	}
 #endif
 
+#if defined(HAVE_OPENGL) || defined(HAVE_GLES2)
 	if (fb == nullptr)
 	{
 #ifdef HAVE_GLES2
@@ -588,8 +596,15 @@ DFrameBuffer *SDLVideo::CreateFrameBuffer ()
 			fb = new OpenGLESRenderer::OpenGLFrameBuffer(0, vid_fullscreen);
 		else
 #endif
+#ifdef HAVE_OPENGL
 			fb = new OpenGLRenderer::OpenGLFrameBuffer(0, vid_fullscreen);
+#else
+			fb = new OpenGLESRenderer::OpenGLFrameBuffer(0, vid_fullscreen);
+#endif
 	}
+#endif
+	if (fb == nullptr)
+		I_FatalError("No renderer available (built without OpenGL; Vulkan failed)");
 
 	return fb;
 }
@@ -697,6 +712,7 @@ void SystemBaseFrameBuffer::SetWindowSize(int w, int h)
 }
 
 
+#if defined(HAVE_OPENGL) || defined(HAVE_GLES2)
 SystemGLFrameBuffer::SystemGLFrameBuffer(void *hMonitor, bool fullscreen)
 : SystemBaseFrameBuffer(hMonitor, fullscreen)
 {
@@ -844,6 +860,7 @@ void SystemGLFrameBuffer::SwapBuffers()
 	NXPERF_SCOPE(swap_ms, nullptr);
 	SDL_GL_SwapWindow(Priv::window);
 }
+#endif
 
 
 void ProcessSDLWindowEvent(const SDL_WindowEvent &event)

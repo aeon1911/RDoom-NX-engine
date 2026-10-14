@@ -737,7 +737,6 @@ set( FASTMATH_SOURCES
 	common/textures/hires/hqnx/hq4x.cpp
 	common/textures/hires/xbr/xbrz.cpp
 	common/textures/hires/xbr/xbrz_old.cpp
-	common/rendering/gl_load/gl_load.c
 	rendering/hwrenderer/hw_dynlightdata.cpp
 	rendering/hwrenderer/hw_nxlights.cpp
 	rendering/hwrenderer/scene/hw_bsp.cpp
@@ -784,6 +783,26 @@ set (VULKAN_SOURCES
 	common/rendering/vulkan/textures/vk_texture.cpp
 	common/rendering/vulkan/textures/vk_framebuffer.cpp
 )
+
+if (HAVE_OPENGL)
+	set (OPENGL_SOURCES
+	common/rendering/gl_load/gl_interface.cpp
+	common/rendering/gl/gl_renderer.cpp
+	common/rendering/gl/gl_stereo3d.cpp
+	common/rendering/gl/gl_framebuffer.cpp
+	common/rendering/gl/gl_renderstate.cpp
+	common/rendering/gl/gl_renderbuffers.cpp
+	common/rendering/gl/gl_postprocess.cpp
+	common/rendering/gl/gl_postprocessstate.cpp
+	common/rendering/gl/gl_debug.cpp
+	common/rendering/gl/gl_buffers.cpp
+	common/rendering/gl/gl_hwtexture.cpp
+	common/rendering/gl/gl_samplers.cpp
+	common/rendering/gl/gl_shader.cpp
+	common/rendering/gl/gl_shaderprogram.cpp
+	)
+	list (APPEND FASTMATH_SOURCES common/rendering/gl_load/gl_load.c)
+endif()
 
 if (HAVE_GLES2)
 	set (GLES_SOURCES
@@ -1202,20 +1221,6 @@ set (PCH_SOURCES
 	common/rendering/hwrenderer/postprocessing/hw_postprocess.cpp
 	common/rendering/hwrenderer/postprocessing/hw_postprocess_cvars.cpp
 	common/rendering/hwrenderer/postprocessing/hw_postprocessshader_ccmds.cpp
-	common/rendering/gl_load/gl_interface.cpp
-	common/rendering/gl/gl_renderer.cpp
-	common/rendering/gl/gl_stereo3d.cpp
-	common/rendering/gl/gl_framebuffer.cpp
-	common/rendering/gl/gl_renderstate.cpp
-	common/rendering/gl/gl_renderbuffers.cpp
-	common/rendering/gl/gl_postprocess.cpp
-	common/rendering/gl/gl_postprocessstate.cpp
-	common/rendering/gl/gl_debug.cpp
-	common/rendering/gl/gl_buffers.cpp
-	common/rendering/gl/gl_hwtexture.cpp
-	common/rendering/gl/gl_samplers.cpp
-	common/rendering/gl/gl_shader.cpp
-	common/rendering/gl/gl_shaderprogram.cpp
 	common/scripting/core/maps.cpp
 	common/scripting/core/dictionary.cpp
 	common/scripting/core/dynarrays.cpp
@@ -1273,6 +1278,12 @@ if( ${HAVE_VM_JIT} )
 	set( PCH_SOURCES ${PCH_SOURCES} ${VM_JIT_SOURCES} )
 else()
 	set( NOT_COMPILED_SOURCE_FILES ${NOT_COMPILED_SOURCE_FILES} ${VM_JIT_SOURCES} )
+endif()
+
+if( HAVE_OPENGL )
+	set( PCH_SOURCES ${PCH_SOURCES} ${OPENGL_SOURCES} )
+else()
+	set( PCH_SOURCES ${PCH_SOURCES} common/rendering/hwrenderer/hw_noopengl.cpp )
 endif()
 
 set( GAME_SOURCES
@@ -1335,10 +1346,12 @@ list( REMOVE_ITEM GAME_NONPCH_SOURCES ${PCH_SOURCES} )
 
 if( NINTENDO_SWITCH )
 	list( REMOVE_ITEM PROJECT_LIBRARIES dl )
-	# One Mesa for every renderer: the Mesa 26.2.4 Horizon SDK (docker/Dockerfile)
-	# provides loaderless NVK (libvulkan.a) and EGL/GL/GLES over the same
-	# Horizon GPU backend. libEGL embeds Zink, so it needs libvulkan too.
-	set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL GLESv2 glapi )
+	# The Mesa 26.2.4 Horizon SDK (docker/Dockerfile) provides loaderless NVK
+	# (libvulkan.a), RDoom's only renderer. EGL/GL are linked only for a build
+	# with the OpenGL backends on (libEGL embeds Zink, so it needs libvulkan).
+	if( HAVE_OPENGL OR HAVE_GLES2 )
+		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} EGL GLESv2 glapi )
+	endif()
 	if( HAVE_VULKAN )
 		set( PROJECT_LIBRARIES ${PROJECT_LIBRARIES} vulkan )
 	endif()

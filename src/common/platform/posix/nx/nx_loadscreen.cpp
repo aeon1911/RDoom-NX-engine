@@ -610,7 +610,7 @@ void RenderFrame(uint32_t *dst, int stride, float dt)
 	c.RoundRect(64, 128, 86, 5, 2.5f, accent, 255, accent2);
 	{
 		// port credit
-		const char *by = "PORT POR RENAN";
+		const char *by = "PORT POR RENAN (\xC3\x86ON)";
 		const char *tg = "Telegram @aeon1911";
 		float w1 = c.TextWidth(fTitle, 30, by);
 		float w2 = c.TextWidth(fBody, 18, tg);
