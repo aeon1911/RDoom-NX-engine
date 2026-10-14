@@ -2100,7 +2100,15 @@ ADD_STAT(network)
 // With this cvar off the mods with a high playsim processing time will appear
 // less smooth as the measured time used for interpolation will vary.
 
+#ifdef __SWITCH__
+// Off on the Switch: on frames without a game tic (25 of 60 per second) it
+// spins for as long as the last tic took, to even out frame times. With the
+// CPU as the limit (Lexicon slaughter map, 8 ms tics) that was ~3.3 ms of
+// every frame (perf.log "rest"); vsync already paces the frames.
+CVAR(Bool, r_ticstability, false, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#else
 CVAR(Bool, r_ticstability, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
 
 static uint64_t stabilityticduration = 0;
 static uint64_t stabilitystarttime = 0;

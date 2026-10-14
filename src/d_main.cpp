@@ -2425,6 +2425,8 @@ EXTERN_CVAR(Float, rd_vk_async_upload_ms)
 EXTERN_CVAR(Int, nx_perfthreshold)
 #endif
 
+EXTERN_CVAR(Bool, r_ticstability)
+
 static void RDoom_UpdateDefaults(bool gameSection)
 {
 #ifdef __SWITCH__
@@ -2446,7 +2448,12 @@ static void RDoom_UpdateDefaults(bool gameSection)
 	}
 	if (rev < 2 && !gameSection)
 		nx_perfthreshold = 40;	// 2: perf.log also shows frames of 40-90 ms (two vsyncs or more)
-	rd_defaults_rev = 2;
+	if (rev < 3 && !gameSection)
+	{
+		// 3: no busy wait on frames without a tic (see r_ticstability in d_net.cpp)
+		r_ticstability = false;
+	}
+	rd_defaults_rev = 3;
 #endif
 }
 
