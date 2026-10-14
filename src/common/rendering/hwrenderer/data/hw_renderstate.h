@@ -42,6 +42,7 @@ enum ERenderEffect
 	EFF_BURN,
 	EFF_STENCIL,
 	EFF_DITHERTRANS,
+	EFF_SIMPLE2D,	// 2D image with the default material: main.fp's 2D path only (SIMPLE_2D)
 	MAX_EFFECTS
 };
 

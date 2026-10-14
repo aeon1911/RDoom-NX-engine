@@ -77,6 +77,10 @@ CVAR(Int, rd_vk_zstate, 0, 0)
 // range for biased draws ([0,1-eps] closer, [eps,1] farther); 1: native bias
 CVAR(Bool, rd_vk_depthbias, false, 0)
 CVAR(Float, rd_vk_depthbias_eps, 1.0f / 8192.0f, 0)
+// 2D images with the default material use the "simple2d" effect shader:
+// main.fp's 2D path without the 3D material/light code (Project Brutality's
+// visor on the console: ~1.9 ms of GPU per screen of 2D with the full shader)
+CVAR(Bool, rd_vk_simple2d, true, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
 int rd_vk_drawlog_burst = 0;
 int rd_vk_drawlog_started = 0;
 extern int nx_levelframes;
@@ -334,6 +338,16 @@ void VkRenderState::ApplyRenderPass(int dt)
 		if (r_skipmats && pipelineKey.EffectState >= 3 && pipelineKey.EffectState <= 4)
 			pipelineKey.EffectState = 0;
 		pipelineKey.AlphaTest = mAlphaThreshold >= 0.f;
+#ifdef __SWITCH__
+		// 2D (fog mode 2) with a texture and the default material, once the
+		// effect shaders exist (the loading screen draws while they compile)
+		if (rd_vk_simple2d && mFogEnabled == 2 && mTextureEnabled && pipelineKey.EffectState == 0 && !mNXFxLayer &&
+			fb->GetShaderManager()->GetEffect(EFF_SIMPLE2D, NORMAL_PASS))
+		{
+			pipelineKey.SpecialEffect = EFF_SIMPLE2D;
+			pipelineKey.AlphaTest = false;
+		}
+#endif
 	}
 
 	// Is this the one we already have?

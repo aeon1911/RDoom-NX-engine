@@ -855,6 +855,39 @@ void main()
 	if (ClipDistanceA.x < 0 || ClipDistanceA.y < 0 || ClipDistanceA.z < 0 || ClipDistanceA.w < 0 || ClipDistanceB.x < 0) discard;
 #endif
 
+#ifdef SIMPLE_2D
+	// 2D image with the default material (EFF_SIMPLE2D): the same result as
+	// the "simple 2D" branch below with func_normal and the default
+	// ProcessLight (returns vColor), without the 3D material and light code
+	// the GPU would otherwise run for every pixel of a HUD or menu.
+	vec2 texCoord = vTexCoord.st;
+#ifdef NPOT_EMULATION
+	if (uNpotEmulation.y != 0.0)
+	{
+		float period = floor(texCoord.t / uNpotEmulation.y);
+		texCoord.s += uNpotEmulation.x * floor(mod(texCoord.t, uNpotEmulation.y));
+		texCoord.t = period + mod(texCoord.t, uNpotEmulation.y);
+	}
+#endif
+	vec4 frag = getTexel(texCoord);
+#ifndef NO_ALPHATEST
+	if (frag.a <= uAlphaThreshold) discard;
+#endif
+	if ((uTextureMode & 0xffff) == 7)
+	{
+		float gray = grayscale(frag);
+		vec4 cm = (uObjectColor + gray * (uAddColor - uObjectColor)) * 2;
+		frag = vec4(clamp(cm.rgb, 0.0, 1.0), frag.a);
+	}
+	frag = frag * vColor;
+	frag.rgb = frag.rgb + uFogColor.rgb;
+	FragColor = frag;
+#ifdef GBUFFER_PASS
+	FragFog = vec4(0.0, 0.0, 0.0, 1.0);
+	FragNormal = vec4(0.5, 0.5, 0.5, 1.0);
+#endif
+#else
+
 #ifndef LEGACY_USER_SHADER
 	Material material;
 
@@ -960,4 +993,5 @@ void main()
 	FragFog = vec4(AmbientOcclusionColor(), 1.0);
 	FragNormal = vec4(vEyeNormal.xyz * 0.5 + 0.5, 1.0);
 #endif
+#endif // SIMPLE_2D
 }
