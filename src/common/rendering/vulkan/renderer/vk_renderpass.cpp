@@ -280,8 +280,12 @@ void VkRenderPassManager::TextureFirstUsed(FGameTexture *tex, int scaleFlags)
 		return;
 	// walls and flats are precached with the map already; what shows up by
 	// surprise are effect sprites (fire, smoke, gore) and decals
+	// Large HUD pictures too: Project Brutality's radiation suit overlay
+	// (1472x2160) took ~0.3 s to decode and upload when first picked up
 	const ETextureType ut = tex->GetUseType();
-	if (ut != ETextureType::Sprite && ut != ETextureType::Decal && ut != ETextureType::SkinSprite)
+	const bool bigPicture = (ut == ETextureType::MiscPatch || ut == ETextureType::Override) &&
+		tex->GetTexelWidth() * tex->GetTexelHeight() >= 256 * 256;
+	if (ut != ETextureType::Sprite && ut != ETextureType::Decal && ut != ETextureType::SkinSprite && !bigPicture)
 		return;
 	const FString &name = tex->GetName();
 	if (name.IsEmpty() || name.Len() > 60 || name.IndexOf(' ') >= 0)

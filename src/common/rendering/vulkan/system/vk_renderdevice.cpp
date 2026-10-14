@@ -154,6 +154,12 @@ VulkanRenderDevice::~VulkanRenderDevice()
 		if (VulkanDeviceLostCallback)
 			VulkanDeviceLostCallback("vkDeviceWaitIdle at shutdown");
 	}
+	// The frames left in flight by the frame overlap hold their delete lists
+	// (descriptor sets among them) until WaitForPendingFrame. Empty them now,
+	// while the descriptor pools still exist: freed after the descriptor set
+	// manager, nvk_FreeDescriptorSets crashed on quit (console, Project
+	// Brutality + WadFusion, black screen at exit).
+	mCommands->WaitForPendingFrame();
 
 #ifdef __SWITCH__
 	mNXFxDepthPass.reset();
