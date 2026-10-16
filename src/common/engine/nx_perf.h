@@ -82,6 +82,7 @@ double NXPerf_LastFrameMS();
 double NXPerf_LastSimMS();
 double NXPerf_LastTicWaitMS();	// the last frame's wait for the next game tic
 double NXPerf_LastAcquireMS();	// the last frame's wait for a swapchain image
+void NXPerf_MemoryText(char *buf, size_t len);	// "memory: process X of Y MB, malloc in use ..."
 double NXPerf_LastTicMS();
 // set by the game code: writes a breakdown (e.g. which actor classes cost the most) into the summary
 extern void (*NXPerf_SummaryHook)(FILE *f);

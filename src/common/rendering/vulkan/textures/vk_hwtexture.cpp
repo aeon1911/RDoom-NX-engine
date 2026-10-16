@@ -379,8 +379,15 @@ void VkMaterial::DeleteDescriptors()
 	}
 }
 
+#ifdef __SWITCH__
+extern uint64_t RDoom_VkFrameNumber;
+#endif
+
 VulkanDescriptorSet* VkMaterial::GetDescriptorSet(const FMaterialState& state)
 {
+#ifdef __SWITCH__
+	LastUseFrame = RDoom_VkFrameNumber;
+#endif
 	auto base = Source();
 	int clampmode = state.mClampMode;
 	int translation = state.mTranslation;

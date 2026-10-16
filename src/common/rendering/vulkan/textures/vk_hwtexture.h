@@ -97,6 +97,7 @@ public:
 
 	VulkanRenderDevice* fb = nullptr;
 	std::list<VkMaterial*>::iterator it;
+	uint64_t LastUseFrame = 0;	// Switch: frame number of the last bind (texture eviction)
 
 private:
 	struct DescriptorEntry

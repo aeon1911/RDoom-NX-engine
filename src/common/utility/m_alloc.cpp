@@ -53,16 +53,39 @@ size_t _msize(void* block)
 
 #ifndef _DEBUG
 #if !defined(__solaris__) && !defined(__sun__) && !defined(_sun) && !defined(__OpenBSD__) && !defined(__DragonFly__)
+void *M_Realloc(void *memblock, size_t size);
+#ifdef __SWITCH__
+void NXPerf_MemoryText(char *buf, size_t len);
+#endif
+
 void *M_Malloc(size_t size)
 {
 	void *block = malloc(size);
 
 	if (block == nullptr)
+	{
+#ifdef __SWITCH__
+		char mem[160];
+		NXPerf_MemoryText(mem, sizeof(mem));
+		I_FatalError("Could not malloc %zu bytes (caller %p, M_Realloc %p, M_Malloc %p)\n%s", size, __builtin_return_address(0), (void *)&M_Realloc, (void *)&M_Malloc, mem);
+#else
 		I_FatalError("Could not malloc %zu bytes", size);
+#endif
+	}
 
 	GC::ReportAlloc(_msize(block));
 	return block;
 }
+
+#ifdef __SWITCH__
+// Out of memory on the console: name the caller (subtract M_Realloc's runtime
+// address and add its ELF address to find it with addr2line) and the memory in use
+void NXPerf_MemoryText(char *buf, size_t len);
+#define RD_ALLOC_FAIL(what, size) do { char mem[160]; NXPerf_MemoryText(mem, sizeof(mem)); \
+	I_FatalError("Could not " what " %zu bytes (caller %p, M_Realloc %p, M_Malloc %p)\n%s", size, __builtin_return_address(0), (void *)&M_Realloc, (void *)&M_Malloc, mem); } while (0)
+#else
+#define RD_ALLOC_FAIL(what, size) I_FatalError("Could not " what " %zu bytes", size)
+#endif
 
 void *M_Realloc(void *memblock, size_t size)
 {
@@ -70,7 +93,7 @@ void *M_Realloc(void *memblock, size_t size)
 	void *block = realloc(memblock, size);
 	if (block == nullptr)
 	{
-		I_FatalError("Could not realloc %zu bytes", size);
+		RD_ALLOC_FAIL("realloc", size);
 	}
 	GC::ReportRealloc(oldsize, _msize(block));
 	return block;

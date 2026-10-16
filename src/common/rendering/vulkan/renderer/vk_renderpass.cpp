@@ -42,6 +42,12 @@
 #include "filesystem.h"
 #include "hw_material.h"
 #include "texturemanager.h"
+#ifdef __SWITCH__
+#include <malloc.h>
+#include "c_cvars.h"
+// memory the texture warm-up may fill at the start of a map (newest pictures first)
+CVAR(Int, rd_vk_texwarm_mb, 256, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+#endif
 #include "gamestate.h"
 #include "nx_perf.h"
 #include "nx_jobs.h"
@@ -268,9 +274,11 @@ void VkRenderPassManager::LoadTextureList()
 	{
 		int useType = 0, scaleFlags = 0;
 		char name[64] = "";
-		if (sscanf(line.GetChars(), "%d %d %63s", &useType, &scaleFlags, name) == 3 && mTexList.size() < 2000)
+		if (sscanf(line.GetChars(), "%d %d %63s", &useType, &scaleFlags, name) == 3)
 			mTexList.push_back({ name, useType, scaleFlags });
 	}
+	if (mTexList.size() > 2000)	// the newest 2000
+		mTexList.erase(mTexList.begin(), mTexList.end() - 2000);
 }
 
 void VkRenderPassManager::TextureFirstUsed(FGameTexture *tex, int scaleFlags)
@@ -292,15 +300,28 @@ void VkRenderPassManager::TextureFirstUsed(FGameTexture *tex, int scaleFlags)
 		return;
 	LoadTextureList();
 	const int useType = (int)tex->GetUseType();
-	for (auto &t : mTexList)
-		if (t.UseType == useType && t.ScaleFlags == scaleFlags && t.Name.CompareNoCase(name) == 0)
-			return;
-	if (mTexList.size() < 2000)
+	// the list is kept in order of use: the end holds the most recent pictures
+	// (the warm-up starts there), the oldest leave when it grows past 2000
+	for (size_t i = 0; i < mTexList.size(); i++)
 	{
-		mTexList.push_back({ name, useType, scaleFlags });
-		mTexDirty = true;
-		mLastTexMs = I_msTime();
+		auto &t = mTexList[i];
+		if (t.UseType == useType && t.ScaleFlags == scaleFlags && t.Name.CompareNoCase(name) == 0)
+		{
+			if (i + 1 == mTexList.size())
+				return;
+			TextureUse moved = t;
+			mTexList.erase(mTexList.begin() + i);
+			mTexList.push_back(moved);
+			mTexDirty = true;
+			mLastTexMs = I_msTime();
+			return;
+		}
 	}
+	mTexList.push_back({ name, useType, scaleFlags });
+	if (mTexList.size() > 2000)
+		mTexList.erase(mTexList.begin());
+	mTexDirty = true;
+	mLastTexMs = I_msTime();
 #endif
 }
 
@@ -310,24 +331,41 @@ void VkRenderPassManager::PrecacheListedTextures()
 	LoadTextureList();
 	if (mTexList.empty())
 		return;
+	// Memory budget, newest pictures first. Project Brutality + WadFusion on
+	// the console: the list had grown to 2000 pictures over four sessions
+	// (every weapon and monster frame seen in any map), all loaded at the
+	// start of each map; with what the map itself then loaded, the heap ran
+	// out after ~11 minutes ("Could not realloc 24263712 bytes").
+	struct mallinfo mi = mallinfo();
+	const double inUseMB = mi.uordblks / 1048576.0;
+	double budget = std::max(0, (int)rd_vk_texwarm_mb) * 1048576.0;
+	if (inUseMB > 1800)
+		budget = 0;	// already a big game: no warm-up at all
 	mTexWarming = true;
 	const uint64_t start = I_msTime();
 	int done = 0;
-	for (auto &t : mTexList)
+	double bytes = 0;
+	for (auto it = mTexList.rbegin(); it != mTexList.rend(); ++it)
 	{
+		auto &t = *it;
 		FTextureID id = TexMan.CheckForTexture(t.Name.GetChars(), (ETextureType)t.UseType, FTextureManager::TEXMAN_TryAny);
 		FGameTexture *tex = id.isValid() ? TexMan.GetGameTexture(id) : nullptr;
 		if (!tex || !tex->isValid())
 			continue;
+		// RGBA8 on the GPU plus a third for mipmaps
+		const double size = double(tex->GetTexelWidth()) * tex->GetTexelHeight() * 4 * 4 / 3;
+		if (bytes + size > budget)
+			break;
 		FMaterial *mat = FMaterial::ValidateTexture(tex, t.ScaleFlags, true);
 		if (!mat)
 			continue;
 		fb->PrecacheMaterial(mat, 0);
+		bytes += size;
 		done++;
 	}
 	mTexWarming = false;
 	FString n;
-	n.Format("%d of %d textures in %d ms", done, (int)mTexList.size(), (int)(I_msTime() - start));
+	n.Format("%d of %d textures in %d ms (%.0f MB; heap in use before %.0f MB)", done, (int)mTexList.size(), (int)(I_msTime() - start), bytes / 1048576.0, inUseMB);
 	RDoom_SessionSet("vulkan_texture_warmup", n.GetChars());
 #endif
 }

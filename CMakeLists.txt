@@ -72,7 +72,7 @@ if( NINTENDO_SWITCH )
 	# our gcc complains about the use of alloca, stricmp, etc without including the appropriate headers
 	# unless we just do this
 	set( CMAKE_CXX_EXTENSIONS ON )
-	set( RDOOM_VERSION "1.1.1" )
+	set( RDOOM_VERSION "1.1.2" )
 	set( SWITCH_APP_VERSION "${RDOOM_VERSION}" )
 	# RDoom launcher sources (outside this tree so the engine stays a patch series)
 	set( RDOOM_LAUNCHER_DIR "${CMAKE_SOURCE_DIR}/../launcher" CACHE PATH "RDoom launcher source directory" )

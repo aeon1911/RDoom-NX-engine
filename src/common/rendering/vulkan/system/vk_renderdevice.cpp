@@ -21,6 +21,10 @@
 */
 
 #include <cinttypes>
+#include <unordered_set>
+#ifdef __SWITCH__
+#include <malloc.h>
+#endif
 #include "gamestate.h"
 #include "vulkan/renderer/vk_pprenderstate.h"
 #include "hwrenderer/postprocessing/hw_postprocess.h"
@@ -714,8 +718,70 @@ TArray<uint8_t> VulkanRenderDevice::GetScreenshotBuffer(int &pitch, ESSType &col
 	return ScreenshotBuffer;
 }
 
+#ifdef __SWITCH__
+uint64_t RDoom_VkFrameNumber = 0;
+// Heap in use (MB) above which sprite, decal and HUD pictures not drawn for a
+// while lose their GPU copy (recreated from the picture the next time they
+// show up). Project Brutality + WadFusion on the console: every monster,
+// gore and weapon frame seen stayed on the GPU until the heap ran out after
+// ~11 minutes ("Could not realloc 24263712 bytes").
+CVAR(Int, rd_vk_texevict_mb, 2300, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
+void VulkanRenderDevice::EvictStaleTextures()
+{
+	static uint64_t lastEviction = 0;
+	const int limit = rd_vk_texevict_mb;
+	if (limit <= 0 || (RDoom_VkFrameNumber % 300) != 0 || gamestate != GS_LEVEL)
+		return;
+	struct mallinfo mi = mallinfo();
+	const double inUse = mi.uordblks / 1048576.0;
+	if (inUse < limit)
+		return;
+	// 30 seconds unseen, at most every 30 seconds (every pass waits for the
+	// GPU and rebuilds the texture descriptor sets); when the heap is much
+	// fuller, 5 seconds unseen at every check
+	const bool urgent = inUse > limit + 400;
+	if (!urgent && lastEviction != 0 && RDoom_VkFrameNumber - lastEviction < 1800)
+		return;
+	const uint64_t age = urgent ? 300 : 1800;
+	const double tScan = NXPerf_NowMS();
+	std::unordered_set<FGameTexture *> seen;
+	TArray<FGameTexture *> stale;
+	for (VkMaterial *mat : mDescriptorSetManager->GetMaterials())
+	{
+		FGameTexture *tex = mat->Source();
+		if (!tex || RDoom_VkFrameNumber - mat->LastUseFrame < age)
+			continue;
+		const ETextureType ut = tex->GetUseType();
+		if (ut != ETextureType::Sprite && ut != ETextureType::SkinSprite && ut != ETextureType::Decal &&
+			ut != ETextureType::MiscPatch && ut != ETextureType::Override)
+			continue;
+		if (seen.insert(tex).second)
+			stale.Push(tex);
+	}
+	if (stale.Size() == 0)
+		return;
+	lastEviction = RDoom_VkFrameNumber;
+	const double t0 = NXPerf_NowMS();
+	// nothing on the GPU, nothing being decoded may still use these pictures;
+	// every texture descriptor set is rebuilt on its next use
+	VkAsyncTex_Flush();
+	mCommands->WaitForCommands(false);
+	for (FGameTexture *tex : stale)
+		tex->CleanHardwareData(true);
+	mDescriptorSetManager->ResetHWTextureSets();
+	mi = mallinfo();
+	NXPerf_Note("texture eviction: %u pictures unseen for %d s, heap in use %.0f -> %.0f MB, %.1f ms (+%.1f ms scan)",
+		stale.Size(), (int)(age / 60), inUse, mi.uordblks / 1048576.0, NXPerf_NowMS() - t0, t0 - tScan);
+}
+#endif
+
 void VulkanRenderDevice::BeginFrame()
 {
+#ifdef __SWITCH__
+	RDoom_VkFrameNumber++;
+	EvictStaleTextures();
+#endif
 	// perf.log "begin" breakdown: wait / cache save / buffers / sprites
 	double t = NXPerf_NowMS(), t2;
 	auto lap = [&](double &acc) { t2 = NXPerf_NowMS(); acc += t2 - t; t = t2; };

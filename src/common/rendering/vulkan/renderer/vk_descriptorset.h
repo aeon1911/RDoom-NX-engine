@@ -58,6 +58,7 @@ public:
 
 	void AddMaterial(VkMaterial* texture);
 	void RemoveMaterial(VkMaterial* texture);
+	const std::list<VkMaterial*> &GetMaterials() const { return Materials; }
 
 private:
 	void CreateHWBufferSetLayout();

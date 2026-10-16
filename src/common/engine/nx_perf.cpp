@@ -67,6 +67,27 @@ static struct
 
 #ifdef __SWITCH__
 #include <switch.h>
+#include <malloc.h>
+
+// Memory in use: the process (heap + code + GPU buffers, all from the same
+// pool on the Switch) and malloc's view of its heap (in use / obtained).
+void NXPerf_MemoryText(char *buf, size_t len)
+{
+	u64 used = 0, total = 0;
+	svcGetInfo(&used, InfoType_UsedMemorySize, CUR_PROCESS_HANDLE, 0);
+	svcGetInfo(&total, InfoType_TotalMemorySize, CUR_PROCESS_HANDLE, 0);
+	struct mallinfo mi = mallinfo();
+	snprintf(buf, len, "memory: process %.0f of %.0f MB, malloc in use %.0f MB of %.0f MB obtained",
+		used / 1048576.0, total / 1048576.0, mi.uordblks / 1048576.0, mi.arena / 1048576.0);
+}
+#else
+void NXPerf_MemoryText(char *buf, size_t len)
+{
+	snprintf(buf, len, "memory: n/a");
+}
+#endif
+
+#ifdef __SWITCH__
 // handheld and docked run the GPU at different (stock) clocks
 static const char *NXOperationMode() { return appletGetOperationMode() == AppletOperationMode_Console ? "docked" : "handheld"; }
 #include "common/platform/posix/nx/nx_glthread.h"
@@ -333,6 +354,11 @@ void NXPerf_EndFrame()
 					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n, win.halfeffects / n, win.halfarea / n, win.halfareamax);
 				fprintf(perfFile, "#   2D (HUD, menus, messages) per frame: %.0f images covering %.2f screens, %.1f fully transparent ones left out\n",
 					win.draws2d / n, win.area2d / n, win.skipped2d / n);
+				{
+					char mem[160];
+					NXPerf_MemoryText(mem, sizeof(mem));
+					fprintf(perfFile, "#   %s\n", mem);
+				}
 			}
 			if (frames > 0 && win.vksubmits > 0)
 			{

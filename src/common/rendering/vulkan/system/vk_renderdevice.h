@@ -150,6 +150,7 @@ private:
 	bool mSceneScaled = false;
 	IntRect mSceneFull, mSceneSmall;
 	void UpdateDynamicResolution();
+	void EvictStaleTextures();
 	// half-resolution effects layer: its viewport, the scene clear colour
 	// while it is cleared, first-use costs paid at level load
 	IntRect mNXFxRect;
