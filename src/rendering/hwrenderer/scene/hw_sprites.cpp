@@ -825,6 +825,11 @@ void HWSprite::PerformSpriteClipAdjustment(AActor *thing, const DVector2 &thingp
 //
 //==========================================================================
 
+#ifdef __SWITCH__
+CVAR(Float, rd_fx_nearcull, 20.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)	// map units; pure effects nearer than this are not drawn
+CVAR(Float, rd_fx_nearfade, 48.f, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)	// they fade in up to this distance
+#endif
+
 void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t in_area, int thruportal, bool isSpriteShadow)
 {
 	sector_t rs;
@@ -1489,6 +1494,25 @@ void HWSprite::Process(HWDrawInfo *di, AActor* thing, sector_t * sector, area_t 
 		lightlist = nullptr;
 	}
 
+#ifdef __SWITCH__
+	// Smoke and sparks right in front of the camera: Project Brutality's gun
+	// smoke fired point-blank into a wall or a monster put a dozen translucent
+	// sprites over the whole screen, each a full screen of fill (console fps
+	// drops). Pure effects closer than rd_fx_nearcull map units are not drawn,
+	// up to rd_fx_nearfade they fade in. Never monsters, pickups, projectiles
+	// that hurt or anything shootable (NXIsPureEffect).
+	if (hw_styleflags != STYLEHW_Solid && !modelframe && !isSpriteShadow && thing != nullptr && rd_fx_nearfade > rd_fx_nearcull &&
+		depth < rd_fx_nearfade && NXIsPureEffect(thing))
+	{
+		const float f = (depth - rd_fx_nearcull) / (rd_fx_nearfade - rd_fx_nearcull);
+		if (f <= 0.f)
+		{
+			nxperf.effectsculled++;
+			return;
+		}
+		trans *= f;
+	}
+#endif
 	if (hw_styleflags != STYLEHW_Solid && !modelframe && !isSpriteShadow && NXEffectOverBudget(di, thing))
 		return;
 	double nxArea;

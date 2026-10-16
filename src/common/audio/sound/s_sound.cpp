@@ -268,8 +268,8 @@ void SoundEngine::NXRestartPending()
 		// a short sound that would start way too late is better skipped.
 		// Start from the beginning (a delayed start sounds better than cutting off the attack).
 		chan->StartTime = 0;
-		if (!loading && (loop || now - since < 400)) RestartChannel(chan);
-		if ((chan->ChanFlags & CHANF_EVICTED) && !loop) ReturnChannel(chan);
+		if (!loading && (loop || now - since < 400)) { RestartChannel(chan); nxperf.sndwhy[7]++; }
+		if ((chan->ChanFlags & CHANF_EVICTED) && !loop) { ReturnChannel(chan); nxperf.sndwhy[8]++; }
 	}
 	// channels that went away in the meantime
 	for (auto it = nxPendingSince.begin(); it != nxPendingSince.end();)
@@ -626,7 +626,10 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	FRolloffInfo *rolloff;
 
 	if (!isValidSoundId(sound_id) || volume <= 0 || nosfx || !SoundEnabled() || blockNewSounds)
+	{
+		nxperf.sndwhy[0]++;
 		return NULL;
+	}
 
 	// prevent crashes.
 	if (type == SOURCE_Unattached && pt == nullptr) type = SOURCE_None;
@@ -637,6 +640,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 
 	if (!ValidatePosVel(type, source, pos, vel))
 	{
+		nxperf.sndwhy[2]++;
 		return nullptr;
 	}
 
@@ -645,7 +649,10 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	// Scale volume according to SNDINFO data.
 	volume = min(volume * sfx->Volume, 1.f);
 	if (volume <= 0)
+	{
+		nxperf.sndwhy[1]++;
 		return NULL;
+	}
 
 	// When resolving a link we do not want to get the NearLimit of
 	// the referenced sound so some additional checks are required
@@ -724,17 +731,19 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	// eventually play for real.
 	if ((chanflags & (CHANF_EVICTED | CHANF_LOOP)) == CHANF_EVICTED)
 	{
+		nxperf.sndwhy[3]++;
 		return NULL;
 	}
 
 	// Make sure the sound is loaded (in the background if possible).
 	bool nxpending = false;
 	sfx = LoadSoundAsync(sfx, &nxpending);
-	if (nxpending) chanflags |= CHANF_EVICTED | CHANF_NXPENDING;
+	if (nxpending) { chanflags |= CHANF_EVICTED | CHANF_NXPENDING; nxperf.sndwhy[6]++; }
 
 	// The empty sound never plays.
 	if (sfx->lumpnum == sfx_empty)
 	{
+		nxperf.sndwhy[4]++;
 		return NULL;
 	}
 
@@ -779,6 +788,7 @@ FSoundChan *SoundEngine::StartSound(int type, const void *source,
 	// Such a sound would play right after unpausing which wouldn't sound right.
 	if (!(chanflags & CHANF_LOOP) && !(chanflags & (CHANF_UI|CHANF_NOPAUSE|CHANF_FORCE)) && SoundPaused)
 	{
+		nxperf.sndwhy[5]++;
 		return NULL;
 	}
 
@@ -881,13 +891,17 @@ void SoundEngine::RestartChannel(FSoundChan *chan)
 
 	// If this is a singular sound, don't play it if it's already playing.
 	if (sfx->bSingular && CheckSingular(chan->SoundID))
+	{
+		nxperf.sndrestart[0]++;
 		return;
+	}
 
 	sfx = LoadSound(sfx);
 
 	// The empty sound never plays.
 	if (sfx->lumpnum == sfx_empty)
 	{
+		nxperf.sndrestart[1]++;
 		return;
 	}
 
@@ -907,6 +921,7 @@ void SoundEngine::RestartChannel(FSoundChan *chan)
 
 		if (!ValidatePosVel(chan, pos, vel))
 		{
+			nxperf.sndrestart[2]++;
 			return;
 		}
 
@@ -914,6 +929,7 @@ void SoundEngine::RestartChannel(FSoundChan *chan)
 		// that's what would happen.
 		if (chan->NearLimit > 0 && CheckSoundLimit(&S_sfx[chan->SoundID.index()], pos, chan->NearLimit, chan->LimitRange, 0, NULL, 0, chan->DistanceScale))
 		{
+			nxperf.sndrestart[3]++;
 			return;
 		}
 
@@ -930,7 +946,10 @@ void SoundEngine::RestartChannel(FSoundChan *chan)
 	if (ochan == NULL)
 	{
 		chan->ChanFlags = oldflags;
+		nxperf.sndrestart[4]++;
 	}
+	else
+		nxperf.sndrestart[5]++;
 }
 
 //==========================================================================

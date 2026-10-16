@@ -46,6 +46,8 @@ struct NXPerfCounters
 	int effectsculled = 0;	// translucent effects left out by the stabilizer's screen area budget
 	int halfeffects = 0;	// effect sprites drawn in the half-resolution layer (Switch Vulkan)
 	double halfarea = 0;	// screen area of the effects that could go to that layer (screens)
+	int sndrestart[6] = {};	// RestartChannel: singular, empty, position, limit, backend refused, ok
+	int sndwhy[10] = {};	// StartSound outcomes: off/invalid, volume 0, position, limit, empty, paused, pending load, restarted after load, dropped (late), -
 	int draws2d = 0, skipped2d = 0;	// 2D images drawn (HUD, menus) / left out because they were fully transparent
 	double area2d = 0;	// screen area those 2D images cover (screens)
 	double present_ms = 0;	// copy of the finished frame to the window (waits for a free window buffer)

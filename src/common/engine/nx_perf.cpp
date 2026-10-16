@@ -63,6 +63,7 @@ static struct
 	double hmalloc, hfree; int hmallocs, hfrees;
 	int tics, thinkers, sndstarts, drawitems, transitems, glsyncs, spriteskips, draws, lightuploads, lightskips, dynlights, dynlightsall, govlevel, vksubmits, effectsculled, halfeffects;
 	int draws2d, skipped2d; double area2d;
+	int sndwhy[10], sndrestart[6], sndcalls, sndstarted;
 } win;
 
 #ifdef __SWITCH__
@@ -233,6 +234,10 @@ void NXPerf_EndFrame()
 		win.halfeffects += nxperf.halfeffects;
 		win.halfarea += nxperf.halfarea;
 		win.draws2d += nxperf.draws2d;
+		for (int i = 0; i < 10; i++) win.sndwhy[i] += nxperf.sndwhy[i];
+		for (int i = 0; i < 6; i++) win.sndrestart[i] += nxperf.sndrestart[i];
+		win.sndcalls += nxperf.sndcalls;
+		win.sndstarted += nxperf.sndstarts;
 		win.skipped2d += nxperf.skipped2d;
 		win.area2d += nxperf.area2d;
 		win.checkpos_ms += nxperf.checkpos_ms;
@@ -354,6 +359,10 @@ void NXPerf_EndFrame()
 					win.draws / n, win.dynlights / n, win.dynlightsall / n, win.lightuploads / n, win.lightskips / n, win.govlevel / n, nxGovLevel, win.effectsculled / n, win.halfeffects / n, win.halfarea / n, win.halfareamax);
 				fprintf(perfFile, "#   2D (HUD, menus, messages) per frame: %.0f images covering %.2f screens, %.1f fully transparent ones left out\n",
 					win.draws2d / n, win.area2d / n, win.skipped2d / n);
+				fprintf(perfFile, "#   sounds: %d requests, %d started at once, %d waiting for their data -> %d started after loading, %d dropped (loaded too late) | not started: off/invalid %d, volume 0 %d, position %d, limit/singular %d, no sound data %d, paused %d\n",
+					win.sndcalls, win.sndstarted, win.sndwhy[6], win.sndwhy[7], win.sndwhy[8], win.sndwhy[0], win.sndwhy[1], win.sndwhy[2], win.sndwhy[3], win.sndwhy[4], win.sndwhy[5]);
+				fprintf(perfFile, "#   sound restarts: ok %d | refused: singular %d, no data %d, position %d, limit %d, backend %d\n",
+					win.sndrestart[5], win.sndrestart[0], win.sndrestart[1], win.sndrestart[2], win.sndrestart[3], win.sndrestart[4]);
 				{
 					char mem[160];
 					NXPerf_MemoryText(mem, sizeof(mem));
