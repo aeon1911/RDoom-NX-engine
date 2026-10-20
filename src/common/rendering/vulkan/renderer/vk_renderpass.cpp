@@ -339,8 +339,13 @@ void VkRenderPassManager::PrecacheListedTextures()
 	struct mallinfo mi = mallinfo();
 	const double inUseMB = mi.uordblks / 1048576.0;
 	double budget = std::max(0, (int)rd_vk_texwarm_mb) * 1048576.0;
-	if (inUseMB > 1800)
-		budget = 0;	// already a big game: no warm-up at all
+	// Already a big game (above 1.8 GB, the usual state after the first map
+	// of Project Brutality): only the big HUD pictures, 64 MB at most. Read
+	// and decoded when first shown, PB's radiation suit visor (1472x2160)
+	// held the game up for 313 ms on the console.
+	const bool hudOnly = inUseMB > 1800;
+	if (hudOnly)
+		budget = std::min(budget, 64 * 1048576.0);
 	mTexWarming = true;
 	const uint64_t start = I_msTime();
 	int done = 0;
@@ -354,8 +359,18 @@ void VkRenderPassManager::PrecacheListedTextures()
 			continue;
 		// RGBA8 on the GPU plus a third for mipmaps
 		const double size = double(tex->GetTexelWidth()) * tex->GetTexelHeight() * 4 * 4 / 3;
+		if (hudOnly)
+		{
+			const ETextureType ut = tex->GetUseType();
+			if ((ut != ETextureType::MiscPatch && ut != ETextureType::Override) || tex->GetTexelWidth() * tex->GetTexelHeight() < 256 * 256)
+				continue;
+		}
 		if (bytes + size > budget)
+		{
+			if (hudOnly)
+				continue;
 			break;
+		}
 		FMaterial *mat = FMaterial::ValidateTexture(tex, t.ScaleFlags, true);
 		if (!mat)
 			continue;
@@ -365,7 +380,7 @@ void VkRenderPassManager::PrecacheListedTextures()
 	}
 	mTexWarming = false;
 	FString n;
-	n.Format("%d of %d textures in %d ms (%.0f MB; heap in use before %.0f MB)", done, (int)mTexList.size(), (int)(I_msTime() - start), bytes / 1048576.0, inUseMB);
+	n.Format("%d of %d textures in %d ms (%.0f MB; heap in use before %.0f MB%s)", done, (int)mTexList.size(), (int)(I_msTime() - start), bytes / 1048576.0, inUseMB, hudOnly ? ", big HUD pictures only" : "");
 	RDoom_SessionSet("vulkan_texture_warmup", n.GetChars());
 #endif
 }

@@ -185,6 +185,21 @@ VulkanDescriptorSetLayout* VkDescriptorSetManager::GetTextureSetLayout(int numLa
 void VkDescriptorSetManager::AddMaterial(VkMaterial* texture)
 {
 	texture->it = Materials.insert(Materials.end(), texture);
+#ifdef __SWITCH__
+	// the layers are set by the FMaterial constructor, before this. Entries
+	// are never removed: a stale one only keeps a picture on the GPU.
+	FGameTexture *src = texture->Source();
+	const auto &layers = texture->GetLayerArray();
+	for (unsigned i = 0; i < layers.Size(); i++)
+	{
+		FTexture *pic = layers[i].layerTexture;
+		if (!pic)
+			continue;
+		auto ins = PictureOwner.insert({ pic, src });
+		if (i > 0 || (!ins.second && ins.first->second != src))
+			SharedPictures.insert(pic);
+	}
+#endif
 }
 
 void VkDescriptorSetManager::RemoveMaterial(VkMaterial* texture)

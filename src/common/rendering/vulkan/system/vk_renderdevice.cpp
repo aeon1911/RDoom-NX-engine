@@ -726,53 +726,113 @@ uint64_t RDoom_VkFrameNumber = 0;
 // gore and weapon frame seen stayed on the GPU until the heap ran out after
 // ~11 minutes ("Could not realloc 24263712 bytes").
 CVAR(Int, rd_vk_texevict_mb, 2300, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+// pictures losing their GPU copy per frame. Destroying an image costs about
+// 0.23 ms on the console (845 ms for 3682 in one frame); 1.1.2/1.1.3 freed
+// them all at once and froze the game for 0.1-1.3 s every 30 s.
+CVAR(Int, rd_vk_texevict_perframe, 4, CVAR_ARCHIVE | CVAR_GLOBALCONFIG)
+
+namespace
+{
+	TArray<FGameTexture *> evictQueue;	// oldest first
+	unsigned evictNext = 0;
+	uint64_t evictAge = 1800;
+	unsigned evictDone = 0;
+	double evictStartHeap = 0, evictStartTime = 0;
+
+	uint64_t NewestUse(FGameTexture *tex)
+	{
+		uint64_t newest = 0;
+		for (int i = 0; i < 5; i++)
+			if (auto mat = static_cast<VkMaterial *>(tex->GetMaterial(i)))
+				newest = std::max(newest, mat->LastUseFrame);
+		return newest;
+	}
+}
 
 void VulkanRenderDevice::EvictStaleTextures()
 {
-	static uint64_t lastEviction = 0;
+	static uint64_t lastScan = 0;
 	const int limit = rd_vk_texevict_mb;
-	if (limit <= 0 || (RDoom_VkFrameNumber % 300) != 0 || gamestate != GS_LEVEL)
+	if (limit <= 0 || gamestate != GS_LEVEL)
 		return;
-	struct mallinfo mi = mallinfo();
-	const double inUse = mi.uordblks / 1048576.0;
-	if (inUse < limit)
-		return;
-	// 30 seconds unseen, at most every 30 seconds (every pass waits for the
-	// GPU and rebuilds the texture descriptor sets); when the heap is much
-	// fuller, 5 seconds unseen at every check
-	const bool urgent = inUse > limit + 400;
-	if (!urgent && lastEviction != 0 && RDoom_VkFrameNumber - lastEviction < 1800)
-		return;
-	const uint64_t age = urgent ? 300 : 1800;
-	const double tScan = NXPerf_NowMS();
-	std::unordered_set<FGameTexture *> seen;
-	TArray<FGameTexture *> stale;
-	for (VkMaterial *mat : mDescriptorSetManager->GetMaterials())
+
+	if (evictNext >= evictQueue.Size())
 	{
-		FGameTexture *tex = mat->Source();
-		if (!tex || RDoom_VkFrameNumber - mat->LastUseFrame < age)
-			continue;
-		const ETextureType ut = tex->GetUseType();
-		if (ut != ETextureType::Sprite && ut != ETextureType::SkinSprite && ut != ETextureType::Decal &&
-			ut != ETextureType::MiscPatch && ut != ETextureType::Override)
-			continue;
-		if (seen.insert(tex).second)
-			stale.Push(tex);
+		if (evictQueue.Size() > 0)
+		{
+			struct mallinfo mi = mallinfo();
+			NXPerf_Note("texture eviction: %u pictures lost their GPU copy over %.1f s, heap in use %.0f -> %.0f MB",
+				evictDone, (NXPerf_NowMS() - evictStartTime) / 1000.0, evictStartHeap, mi.uordblks / 1048576.0);
+			evictQueue.Clear();
+			evictNext = 0;
+		}
+		if ((RDoom_VkFrameNumber % 300) != 0)
+			return;
+		struct mallinfo mi = mallinfo();
+		const double inUse = mi.uordblks / 1048576.0;
+		if (inUse < limit)
+			return;
+		// 30 seconds unseen, a scan (5-9 ms with Project Brutality) at most
+		// every 30 seconds; when the heap is much fuller, 5 seconds unseen
+		const bool urgent = inUse > limit + 400;
+		if (!urgent && lastScan != 0 && RDoom_VkFrameNumber - lastScan < 1800)
+			return;
+		lastScan = RDoom_VkFrameNumber;
+		evictAge = urgent ? 300 : 1800;
+		const double tScan = NXPerf_NowMS();
+		std::unordered_set<FGameTexture *> seen;
+		TArray<std::pair<uint64_t, FGameTexture *>> stale;
+		for (VkMaterial *mat : mDescriptorSetManager->GetMaterials())
+		{
+			FGameTexture *tex = mat->Source();
+			if (!tex || RDoom_VkFrameNumber - mat->LastUseFrame < evictAge)
+				continue;
+			const ETextureType ut = tex->GetUseType();
+			if (ut != ETextureType::Sprite && ut != ETextureType::SkinSprite && ut != ETextureType::Decal &&
+				ut != ETextureType::MiscPatch && ut != ETextureType::Override)
+				continue;
+			// big HUD pictures stay: decoding PB's 1472x2160 visor again
+			// costs the game thread ~300 ms
+			if ((ut == ETextureType::MiscPatch || ut == ETextureType::Override) &&
+				tex->GetTexelWidth() * tex->GetTexelHeight() >= 256 * 256)
+				continue;
+			if (!seen.insert(tex).second)
+				continue;
+			// a texture with a material drawn recently keeps everything; one
+			// already without GPU copies has nothing to give back
+			const uint64_t newest = NewestUse(tex);
+			if (RDoom_VkFrameNumber - newest < evictAge || !tex->GetTexture()->HasHardwareTextures())
+				continue;
+			stale.Push({ newest, tex });
+		}
+		if (stale.Size() == 0)
+			return;
+		std::sort(stale.begin(), stale.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+		for (auto &it : stale)
+			evictQueue.Push(it.second);
+		evictNext = 0;
+		evictDone = 0;
+		evictStartHeap = inUse;
+		evictStartTime = NXPerf_NowMS();
+		NXPerf_Note("texture eviction: %u pictures unseen for %d s, heap in use %.0f MB, scan %.1f ms",
+			stale.Size(), (int)(evictAge / 60), inUse, NXPerf_NowMS() - tScan);
+		return;	// the scan was this frame's share
 	}
-	if (stale.Size() == 0)
-		return;
-	lastEviction = RDoom_VkFrameNumber;
-	const double t0 = NXPerf_NowMS();
-	// nothing on the GPU, nothing being decoded may still use these pictures;
-	// every texture descriptor set is rebuilt on its next use
-	VkAsyncTex_Flush();
-	mCommands->WaitForCommands(false);
-	for (FGameTexture *tex : stale)
+
+	// the images go to this frame's delete list: destroyed once the GPU is
+	// done with this frame (and so with every earlier one using them); the
+	// materials' descriptor sets go with them, no other set points at them
+	int budget = std::max(1, (int)rd_vk_texevict_perframe);
+	for (int looked = 0; budget > 0 && looked < 256 && evictNext < evictQueue.Size(); looked++)
+	{
+		FGameTexture *tex = evictQueue[evictNext++];
+		FTexture *base = tex->GetTexture();
+		if (RDoom_VkFrameNumber - NewestUse(tex) < evictAge || mDescriptorSetManager->IsSharedPicture(base) || !base->HasHardwareTextures())
+			continue;
 		tex->CleanHardwareData(true);
-	mDescriptorSetManager->ResetHWTextureSets();
-	mi = mallinfo();
-	NXPerf_Note("texture eviction: %u pictures unseen for %d s, heap in use %.0f -> %.0f MB, %.1f ms (+%.1f ms scan)",
-		stale.Size(), (int)(age / 60), inUse, mi.uordblks / 1048576.0, NXPerf_NowMS() - t0, t0 - tScan);
+		evictDone++;
+		budget--;
+	}
 }
 #endif
 

@@ -22,12 +22,17 @@
 
 #pragma once
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include "zvulkan/vulkanobjects.h"
 #include <list>
 #include "tarray.h"
 
 class VulkanRenderDevice;
 class VkMaterial;
+class FTexture;
+class FGameTexture;
 class PPTextureInput;
 class VkPPRenderPassSetup;
 
@@ -59,6 +64,12 @@ public:
 	void AddMaterial(VkMaterial* texture);
 	void RemoveMaterial(VkMaterial* texture);
 	const std::list<VkMaterial*> &GetMaterials() const { return Materials; }
+#ifdef __SWITCH__
+	// pictures sampled by materials of more than one texture, or as a
+	// brightmap/extra layer: texture eviction leaves their GPU copy alone,
+	// another material's descriptor set may still point at it
+	bool IsSharedPicture(FTexture *pic) const { return SharedPictures.count(pic) != 0; }
+#endif
 
 private:
 	void CreateHWBufferSetLayout();
@@ -69,6 +80,10 @@ private:
 	std::unique_ptr<VulkanDescriptorSet> AllocatePPDescriptorSet(VulkanDescriptorSetLayout* layout);
 
 	VulkanRenderDevice* fb = nullptr;
+#ifdef __SWITCH__
+	std::unordered_map<FTexture*, FGameTexture*> PictureOwner;
+	std::unordered_set<FTexture*> SharedPictures;
+#endif
 
 	std::unique_ptr<VulkanDescriptorSetLayout> HWBufferSetLayout;
 	std::unique_ptr<VulkanDescriptorSetLayout> FixedSetLayout;

@@ -225,6 +225,13 @@ public:
 		SystemTextures.Clean();
 	}
 
+	bool HasHardwareTextures()
+	{
+		bool any = false;
+		SystemTextures.Iterate([&](IHardwareTexture *) { any = true; });
+		return any;
+	}
+
 	void CleanPrecacheMarker()
 	{
 		SystemTextures.UnmarkAll();
